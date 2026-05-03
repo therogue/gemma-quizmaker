@@ -128,12 +128,13 @@ def generate_mcq(model, processor, topic: str) -> MCQ:
 
 
 def load_model():
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16
-    )
+    ) if device == "cuda" else None
     processor = AutoProcessor.from_pretrained(MODEL_ID)
     model = AutoModelForImageTextToText.from_pretrained(
-        MODEL_ID, quantization_config=bnb_config, device_map="cuda:0"
+        MODEL_ID, quantization_config=bnb_config, device_map=device
     )
     return model, processor
 
