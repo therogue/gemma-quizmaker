@@ -1,13 +1,25 @@
 # /// script
-# requires-python = ">=3.11"
+# # Python and torch are pinned to 3.12 / CUDA 12.1 because the PyTorch CUDA 13
+# # wheels require a newer driver than the RTX 3070 Laptop (driver caps at CUDA 12.8).
+# requires-python = ">=3.12, <3.13"
 # dependencies = [
 #     "transformers",
-#     "torch",
-#     "torchvision",
+#     "torch",        # pinned to cu121 via [tool.uv.sources] below
+#     "torchvision",  # pinned to cu121 via [tool.uv.sources] below
 #     "pillow",
 #     "accelerate",
+#     "bitsandbytes",
 #     "psutil",
 # ]
+#
+# [tool.uv.sources]
+# torch = { index = "pytorch-cu121" }
+# torchvision = { index = "pytorch-cu121" }
+#
+# [[tool.uv.index]]
+# name = "pytorch-cu121"
+# url = "https://download.pytorch.org/whl/cu121"
+# explicit = true
 # ///
 """Smoke test for Gemma 4 multimodal inference. Mirrors docs/reference/test-google-gemma-4.ipynb."""
 
@@ -15,9 +27,10 @@ import os
 
 import psutil
 import torch
-from transformers import AutoProcessor, AutoModelForImageTextToText
+from PIL import Image
+from transformers import AutoProcessor, AutoModelForImageTextToText, BitsAndBytesConfig
 
-MODEL_ID = "google/gemma-4-E4B-it"
+MODEL_ID = "google/gemma-4-E2B-it"
 MAX_NEW_TOKENS = 256
 ENABLE_THINKING = False
 
@@ -53,31 +66,33 @@ def report_memory(tag: str, model: torch.nn.Module | None = None) -> None:
 
 
 def main() -> None:
+    bnb_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)
     report_memory("before-load")
     processor = AutoProcessor.from_pretrained(MODEL_ID)
-    model = AutoModelForImageTextToText.from_pretrained(MODEL_ID)
+    model = AutoModelForImageTextToText.from_pretrained(
+        MODEL_ID,
+        quantization_config=bnb_config,
+        device_map="cuda:0",
+    )
     report_memory("after-load", model)
 
     # 1) Image+text
+    _img = Image.open(os.path.join(os.path.dirname(__file__), "candy.jpg")).convert("RGB")
     image_messages = [
         {
             "role": "user",
             "content": [
-                {
-                    "type": "image",
-                    "url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/p-blog/candy.JPG",
-                },
+                {"type": "image"},
                 {"type": "text", "text": "What animal is on the candy?"},
             ],
         },
     ]
-    inputs = processor.apply_chat_template(
+    text = processor.apply_chat_template(
         image_messages,
         add_generation_prompt=True,
-        tokenize=True,
-        return_dict=True,
-        return_tensors="pt",
-    ).to(model.device)
+        tokenize=False,
+    )
+    inputs = processor(text=text, images=[_img], return_tensors="pt").to(model.device)
     outputs = model.generate(**inputs, max_new_tokens=40)
     print("[image+text]")
     print(processor.decode(outputs[0][inputs["input_ids"].shape[-1]:]))
