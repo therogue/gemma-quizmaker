@@ -7,8 +7,9 @@ Time is short. This roadmap is ruthless about scope. Anything not on the critica
 - **Text-only**. No image/PDF upload until after MVP.
 - **No web search, no graph/equation tool, no file read** until after MVP. They conflict with "offline" and aren't needed to prove the core loop.
 - **No follow-up recommendations** until after MVP.
-- **CLI first**, UI second. UI is presentation; the loop is the product.
+- **CLI + UI in parallel from M1.** CLI stays as the harness for fast iteration; UI grows alongside so the demo target is real from day one. M3 finishes the UI; it does not start it.
 - **One Gemma 4 variant** picked early and frozen. Don't shop variants.
+- **LangGraph introduced at M2, not before.** M1's loop is straight-line; LangGraph would be pure overhead. M2 adds verification + safety branching, retries, and shared state — that's where an explicit graph starts paying for itself, and it doubles as the boundary the M3 UI talks to.
 
 ## North-star demo
 A 90-second clip:
@@ -34,8 +35,9 @@ If that runs offline on Gemma 4, the PoC is done.
 **Done when:** one shell command emits a valid MCQ JSON about a user-supplied topic.
 
 ## M1 — Core loop (PoC)
-**Goal:** the north-star demo, in a CLI.
+**Goal:** the north-star demo, in a CLI **and** a minimal UI.
 
+Loop:
 - [ ] Topic intake → overview generation (short, structured).
 - [ ] Quiz generation: N MCQs from the overview, JSON-validated.
 - [ ] Grading: exact index match.
@@ -43,29 +45,43 @@ If that runs offline on Gemma 4, the PoC is done.
 - [ ] **Turn-based interleaver**: every K user turns, pop one item from the queue and ask it; correct answer demotes priority, wrong promotes it.
 - [ ] Persist queue + history to a single SQLite file so a session can resume.
 
-**Done when:** the north-star demo runs in a terminal, offline.
+UI (single-conversation shell):
+- [ ] Pick the smallest workable stack and freeze it (FastAPI + single HTML page is the default — no deliberation).
+- [ ] Chat pane: user input box, message list.
+- [ ] MCQs render as clickable choices; selection sends an answer event.
+- [ ] UI talks to the **same** loop the CLI drives — no parallel implementations.
 
-**Explicitly out:** multi-conversation, UI, materials upload, verification node, safety node.
+**Done when:** the north-star demo runs both in a terminal and in the browser, offline.
 
-## M2 — Verification + safety (still PoC-grade)
-**Goal:** stop the obvious failure modes that would tank a demo.
+**Explicitly out:** multi-conversation, materials upload, verification node, safety node, LangGraph.
 
+## M2 — Verification + safety + LangGraph migration
+**Goal:** stop the obvious failure modes that would tank a demo, and put the loop on rails so M3 has a clean API to build a UI against.
+
+Graph + nodes:
+- [ ] Migrate M1's loop to **LangGraph**. Nodes: `overview`, `quiz_gen`, `verify`, `safety`, `grade`, `review_inject`. Shared state object replaces the ad-hoc dict from M1.
 - [ ] Verification node: re-prompt Gemma to check `answer_index` is consistent with `question + choices`. Drop items that fail.
 - [ ] Safety node: a single classifier prompt that rejects unsafe topics/questions before they reach the user.
+- [ ] Conditional edges: failed verify → retry once, then drop; failed safety → short-circuit to a polite refusal.
 - [ ] Logging: every node's input/output to a JSONL file for debugging.
 
-**Done when:** running the demo on a list of 20 varied topics produces zero malformed quizzes and zero unsafe outputs.
+UI surfaces:
+- [ ] Show a small status indicator when an item is dropped by verify/safety (so the user understands why a topic was refused or a question regenerated).
+- [ ] Persist conversation+queue to SQLite so reload restores state in the UI, not just the CLI.
 
-## M3 — Multi-conversation + minimal UI (MVP)
-**Goal:** the thing the judges actually click on.
+**Done when:** running the demo on a list of 20 varied topics produces zero malformed quizzes and zero unsafe outputs, and the UI faithfully reflects verify/safety outcomes.
 
-- [ ] Data model: `Conversation`, `Message`, `QuizItem`, `ReviewState`. SQLite.
+## M3 — UI completion (MVP)
+**Goal:** finish the UI on top of the M2 graph. Everything user-visible lands here.
+
+- [ ] Data model finalized: `Conversation`, `Message`, `QuizItem`, `ReviewState`. SQLite (already on disk from M2; this milestone hardens the schema).
 - [ ] Conversation picker (sidebar list, "new conversation" button).
-- [ ] Chat pane that renders MCQs as clickable choices.
-- [ ] Cross-conversation review pool: incorrect items from any conversation can re-surface in any conversation.
-- [ ] Pick framework: smallest thing that works (FastAPI + a single HTML page, or a Tauri/Electron shell — pick one, don't deliberate).
+- [ ] Conversation switcher preserves per-conversation state without losing in-flight quizzes.
+- [ ] Cross-conversation review pool: incorrect items from any conversation can re-surface in any conversation; UI shows which conversation a re-surfaced item originated from.
+- [ ] Empty-state, loading, and error states for the chat pane and the picker.
+- [ ] Visual polish pass: keyboard nav for MCQ choices, responsive layout, no console errors.
 
-**Done when:** a non-developer can open the app, run two topics, switch between them, and see review questions interleave.
+**Done when:** a non-developer can open the app, run two topics, switch between them, and see review questions interleave — including review items that crossed conversations.
 
 ## M4 — Submission polish
 - [ ] README with run instructions (uv-only).
@@ -87,5 +103,6 @@ If that runs offline on Gemma 4, the PoC is done.
 ## Risks (and the cheap mitigation)
 - **Variant doesn't fit hardware** → fall back to smaller variant or 4-bit; decided in M0, not M3.
 - **JSON parsing flakiness** → strict schema + one retry + verification node; do not invent a parser DSL.
-- **Scope creep into agent frameworks** → no LangGraph/LlamaIndex unless something in M1 actually breaks without it. Plain Python functions until proven insufficient.
+- **Scope creep into agent frameworks** → LangGraph is scheduled for M2 only, when verify/safety branching makes plain functions painful. No LlamaIndex, no other framework, no earlier adoption. If M1 tempts you to add it for "cleanliness," resist.
+- **LangGraph migration overruns its budget** → if the M2 migration isn't passing the M1 demo within a short timebox, fall back to plain functions and ship M2's verify/safety nodes without the graph. Demo > framework.
 - **Offline + web search conflict** → web search is deferred; do not re-litigate.
