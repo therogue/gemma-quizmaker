@@ -65,3 +65,23 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True uv run scripts/generate_mcq.py 
 ```
 
 The script validates the output with pydantic and retries once on parse or validation failure.
+
+---
+
+## API server (stub)
+
+FastAPI scaffolding with a `/chat` endpoint. Returns `"hello"` for now — real Gemma inference will be wired in at M1.
+
+```bash
+uv run uvicorn app.main:app --reload
+```
+
+Interactive docs: `http://localhost:8000/docs`
+
+Test with curl:
+
+```bash
+curl -s -X POST http://localhost:8000/chat \
+     -H "Content-Type: application/json" \
+     -d '{"message": "hello"}' | python -m json.tool
+```
