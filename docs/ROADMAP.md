@@ -105,9 +105,28 @@ UI surfaces:
 - Follow-up topic recommendations.
 - Adaptation tuning beyond "wrong-answer priority."
 
+## Generation quality concerns (not yet addressed)
+
+These are known output-quality failure modes observed during M1 development. None are blocking the PoC demo, but they should be tackled before MVP or they will degrade the learning experience.
+
+**Content diversity**
+- **Duplicate or near-duplicate questions**: Gemma tends to generate questions about the same obvious fact. Mitigation candidate: assign each MCQ to a specific overview bullet (see Ideas section); M2 verify node could also reject questions too similar to existing ones.
+- **Redundant overview bullets**: the overview can repeat the same concept in slightly different wording. Mitigation candidate: post-generation deduplication pass, or prompt engineering to force distinct aspects per bullet.
+
+**Answer choice quality**
+- **Multiple choices that are arguably correct**: Gemma sometimes generates distractors that are also defensible answers. The M2 verify node should check this explicitly — re-prompt Gemma to confirm only one choice is unambiguously correct.
+- **Similar or non-discriminating choices**: all four choices may be semantically similar, making the question trivial. Verify node candidate.
+- **Gemma labelling choices with A/B/C/D**: model sometimes prefixes choice text with its own letter labels; prompt mitigation in place but not fully reliable.
+
+**Lifecycle and data hygiene**
+- **No way to discard bad generated content**: if a question or overview is clearly wrong, there is no admin tool to delete or flag it. Needed before multi-user or persistent-session use.
+- **SQLite accumulates stale sessions**: switching topics leaves orphaned quiz items with no cleanup path. A `reset` or `clear-session` endpoint/CLI command is needed.
+- **Overview/question versioning**: re-generating a topic overwrites the old session with no history. If the new generation is worse, the old one is lost.
+
 ## Risks (and the cheap mitigation)
 - **Variant doesn't fit hardware** → fall back to smaller variant or 4-bit; decided in M0, not M3.
 - **JSON parsing flakiness** → strict schema + one retry + verification node; do not invent a parser DSL.
+- **Generation quality degrades on niche topics** → log all raw model outputs (already in place for MCQ and overview); review logs to identify prompt improvements before M2.
 - **Scope creep into agent frameworks** → LangGraph is scheduled for M2 only, when verify/safety branching makes plain functions painful. No LlamaIndex, no other framework, no earlier adoption. If M1 tempts you to add it for "cleanliness," resist.
 - **LangGraph migration overruns its budget** → if the M2 migration isn't passing the M1 demo within a short timebox, fall back to plain functions and ship M2's verify/safety nodes without the graph. Demo > framework.
 - **Offline + web search conflict** → web search is deferred; do not re-litigate.
