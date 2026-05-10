@@ -12,6 +12,7 @@ dependencies = [
     "pillow",
     "accelerate",
     "bitsandbytes",
+    "langgraph>=1.1.10",
 ]
 
 [tool.uv.sources]

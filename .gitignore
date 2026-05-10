@@ -1,4 +1,5 @@
 .claude/
+.cursor/feature-state-*.json
 .venv/
 __pycache__/
 *.py[cod]
