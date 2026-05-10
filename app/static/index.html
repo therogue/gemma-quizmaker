@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gemma Quizmaker</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f5f5f5;
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+    }
+
+    header {
+      padding: 12px 20px;
+      background: #1a1a2e;
+      color: #fff;
+      font-weight: 600;
+      font-size: 1rem;
+      letter-spacing: 0.02em;
+    }
+
+    #chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .bubble {
+      max-width: 680px;
+      padding: 12px 16px;
+      border-radius: 12px;
+      line-height: 1.55;
+      font-size: 0.95rem;
+      white-space: pre-wrap;
+    }
+
+    .bubble.assistant { background: #fff; border: 1px solid #e0e0e0; align-self: flex-start; }
+    .bubble.user      { background: #1a1a2e; color: #fff; align-self: flex-end; }
+    .bubble.system    { background: #f0f0f0; color: #666; align-self: center; font-size: 0.85rem; font-style: italic; }
+
+    .mcq-block {
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-radius: 12px;
+      padding: 14px 16px;
+      max-width: 680px;
+      align-self: flex-start;
+    }
+
+    .mcq-block.review { border-left: 4px solid #f0a500; }
+
+    .mcq-question { font-weight: 600; margin-bottom: 10px; font-size: 0.95rem; }
+
+    .mcq-choices { display: flex; flex-direction: column; gap: 6px; }
+
+    .choice-btn {
+      text-align: left;
+      background: #f5f5f5;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 0.92rem;
+      transition: background 0.15s;
+    }
+
+    .choice-btn:hover:not(:disabled) { background: #e8e8e8; }
+    .choice-btn:disabled { cursor: default; }
+    .choice-btn.correct  { background: #d4edda; border-color: #28a745; }
+    .choice-btn.wrong    { background: #f8d7da; border-color: #dc3545; }
+    .choice-btn.revealed { background: #d4edda; border-color: #28a745; }
+
+    #input-row {
+      display: flex;
+      gap: 8px;
+      padding: 12px 20px;
+      background: #fff;
+      border-top: 1px solid #e0e0e0;
+    }
+
+    #topic-input {
+      flex: 1;
+      padding: 10px 14px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      font-size: 0.95rem;
+    }
+
+    #topic-input:focus { outline: none; border-color: #1a1a2e; }
+
+    #send-btn {
+      padding: 10px 20px;
+      background: #1a1a2e;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+
+    #send-btn:disabled { opacity: 0.5; cursor: default; }
+  </style>
+</head>
+<body>
+
+<header>Gemma Quizmaker</header>
+
+<div id="chat"></div>
+
+<div id="input-row">
+  <input id="topic-input" type="text" placeholder="Enter a topic to study…" />
+  <button id="send-btn">Start</button>
+</div>
+
+<script>
+  const chat = document.getElementById('chat');
+  const input = document.getElementById('topic-input');
+  const sendBtn = document.getElementById('send-btn');
+
+  // pending question waiting for an answer
+  let pendingQuestion = null;
+
+  // ── rendering helpers ────────────────────────────────────────────────────
+
+  function addBubble(role, text) {
+    const el = document.createElement('div');
+    el.className = `bubble ${role}`;
+    el.textContent = text;
+    chat.appendChild(el);
+    chat.scrollTop = chat.scrollHeight;
+    return el;
+  }
+
+  function renderQuestion(q) {
+    const block = document.createElement('div');
+    block.className = 'mcq-block' + (q.is_review ? ' review' : '');
+
+    const label = q.is_review ? '🔁 Review: ' : '';
+    const qEl = document.createElement('div');
+    qEl.className = 'mcq-question';
+    qEl.textContent = label + q.question;
+    block.appendChild(qEl);
+
+    const choicesEl = document.createElement('div');
+    choicesEl.className = 'mcq-choices';
+
+    const letters = ['A', 'B', 'C', 'D'];
+    q.choices.forEach((text, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'choice-btn';
+      btn.textContent = `${letters[i]}. ${text}`;
+      btn.onclick = () => submitAnswer(q.item_id, i, block);
+      choicesEl.appendChild(btn);
+    });
+
+    block.appendChild(choicesEl);
+    chat.appendChild(block);
+    chat.scrollTop = chat.scrollHeight;
+    return block;
+  }
+
+  function markChoices(block, choiceIndex, correctIndex) {
+    const btns = block.querySelectorAll('.choice-btn');
+    btns.forEach((btn, i) => {
+      btn.disabled = true;
+      if (i === choiceIndex && i === correctIndex) btn.classList.add('correct');
+      else if (i === choiceIndex)                   btn.classList.add('wrong');
+      else if (i === correctIndex)                  btn.classList.add('revealed');
+    });
+  }
+
+  // ── API calls ────────────────────────────────────────────────────────────
+
+  async function post(path, body = {}) {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+
+  // ── flow ─────────────────────────────────────────────────────────────────
+
+  async function startTopic(topic) {
+    sendBtn.disabled = true;
+    input.disabled = true;
+    addBubble('user', topic);
+    addBubble('system', 'Generating overview and questions…');
+
+    try {
+      const data = await post('/start', { topic, quiz_count: 3 });
+      addBubble('assistant', data.overview);
+      for (const q of data.questions) {
+        renderQuestion(q);
+      }
+    } catch (e) {
+      addBubble('system', `Error: ${e.message}`);
+    }
+  }
+
+  async function submitAnswer(itemId, choiceIndex, block) {
+    block.querySelectorAll('.choice-btn').forEach(b => b.disabled = true);
+
+    try {
+      const data = await post('/answer', { item_id: itemId, choice_index: choiceIndex });
+      markChoices(block, choiceIndex, data.correct_index);
+      const verdict = data.is_correct ? 'Correct!' : 'Not quite.';
+      addBubble('assistant', `${verdict}\n${data.rationale}`);
+      await advanceTurn();
+    } catch (e) {
+      addBubble('system', `Error: ${e.message}`);
+    }
+  }
+
+  async function advanceTurn() {
+    try {
+      const data = await post('/turn');
+      if (data.review) {
+        addBubble('system', 'Time for a review question.');
+        renderQuestion(data.review);
+      }
+    } catch (e) {
+      addBubble('system', `Error: ${e.message}`);
+    }
+  }
+
+  // ── event wiring ──────────────────────────────────────────────────────────
+
+  sendBtn.addEventListener('click', () => {
+    const topic = input.value.trim();
+    if (!topic) return;
+    startTopic(topic);
+  });
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') sendBtn.click();
+  });
+</script>
+</body>
+</html>
