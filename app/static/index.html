@@ -277,11 +277,11 @@
     chat.scrollTop = chat.scrollHeight;
   }
 
-  function showSpinner() {
+  function showSpinner(container = null) {
     const el = document.createElement('div');
     el.className = 'spinner-bubble';
     el.innerHTML = '<div class="spinner"></div>';
-    currentContainer.appendChild(el);
+    (container || currentContainer).appendChild(el);
     chat.scrollTop = chat.scrollHeight;
     return el;
   }
@@ -355,7 +355,7 @@
     sendBtn.disabled = true;
     input.disabled = true;
     addBubble('user', topic);
-    const spinner = showSpinner();
+    const spinner = showSpinner(chat);
 
     try {
       const data = await post('/start-topic', { topic, quiz_count: 3 });
