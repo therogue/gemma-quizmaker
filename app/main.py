@@ -3,9 +3,10 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from quizmaker.core_loop import AskedQuestion, CoreLoop
@@ -30,6 +31,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="gemma-quizmaker", version="0.1.0", lifespan=lifespan)
+
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+
+
+@app.get("/")
+async def index() -> FileResponse:
+    return FileResponse(_STATIC_DIR / "index.html")
 
 
 # ── request / response models ────────────────────────────────────────────────
