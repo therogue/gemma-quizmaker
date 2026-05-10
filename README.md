@@ -88,4 +88,14 @@ Useful options:
 uv run scripts/run_core_loop.py "photosynthesis" --count 5 --review-every 2 --db data/quizmaker.sqlite3
 ```
 
-Core backend code lives in [`quizmaker/`](quizmaker/) so the future FastAPI/UI layer can call the same loop instead of reimplementing quiz generation, grading, review scheduling, or persistence.
+Core backend code lives in [`quizmaker/`](quizmaker/) so the FastAPI layer calls the same loop instead of reimplementing quiz generation, grading, review scheduling, or persistence.
+
+---
+
+## API server
+
+```bash
+uv run uvicorn app.main:app --reload
+```
+
+Interactive docs: `http://localhost:8000/docs`

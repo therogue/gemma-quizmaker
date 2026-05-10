@@ -6,6 +6,7 @@
 #     "torchvision",
 #     "pillow",
 #     "accelerate",
+#     "bitsandbytes",
 # ]
 # ///
 """Run the M1 backend core loop from a terminal.
