@@ -48,11 +48,12 @@ class AnswerRequest(BaseModel):
 # --- endpoints ------------------------------------------------------------
 
 
-@app.post("/start")
+@app.post("/start-topic")
 def start(req: StartRequest):
-    global _item_counter, _items
+    global _item_counter, _items, _turn
     _item_counter = 0
     _items = {}
+    _turn = 0
 
     questions = []
     for i in range(req.quiz_count):

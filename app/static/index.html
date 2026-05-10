@@ -199,7 +199,7 @@
     addBubble('system', 'Generating overview and questions…');
 
     try {
-      const data = await post('/start', { topic, quiz_count: 3 });
+      const data = await post('/start-topic', { topic, quiz_count: 3 });
       addBubble('assistant', data.overview);
       for (const q of data.questions) {
         renderQuestion(q);
