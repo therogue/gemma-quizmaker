@@ -210,7 +210,11 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try { detail = (await res.json()).detail ?? detail; } catch {}
+      throw new Error(detail);
+    }
     return res.json();
   }
 
@@ -231,7 +235,10 @@
       }
     } catch (e) {
       spinner.remove();
-      addBubble('system', `Error: ${e.message}`);
+      addBubble('system', `Error: ${e.message} — try a different topic.`);
+      input.disabled = false;
+      sendBtn.disabled = false;
+      input.focus();
     }
   }
 

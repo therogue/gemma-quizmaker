@@ -104,19 +104,31 @@ class GemmaQuizGenerator:
             },
         ]
         raw = run_inference(self.model, self.processor, messages, MAX_NEW_TOKENS)
-        try:
-            return MCQ.from_mapping(json.loads(extract_json_object(raw)))
-        except Exception as first_error:
-            print(f"[retry] MCQ {question_number} failed validation: {first_error}", file=sys.stderr)
-            retry_messages = messages + [
-                {"role": "assistant", "content": raw},
-                {
-                    "role": "user",
-                    "content": (
-                        f"Your output was invalid ({first_error}). "
-                        "Return ONLY the valid JSON object."
-                    ),
-                },
-            ]
-            raw2 = run_inference(self.model, self.processor, retry_messages, MAX_NEW_TOKENS)
-            return MCQ.from_mapping(json.loads(extract_json_object(raw2)))
+        print(f"[mcq {question_number}] raw output: {raw!r}", file=sys.stderr)
+        last_error: Exception
+        current_messages = messages
+        current_raw = raw
+        for attempt in range(3):
+            try:
+                return MCQ.from_mapping(json.loads(extract_json_object(current_raw)))
+            except Exception as err:
+                last_error = err
+                print(
+                    f"[retry {attempt + 1}/3] MCQ {question_number} failed: {err}",
+                    file=sys.stderr,
+                )
+                current_messages = current_messages + [
+                    {"role": "assistant", "content": current_raw},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Your output was invalid ({err}). "
+                            "Return ONLY the valid JSON object with no extra text."
+                        ),
+                    },
+                ]
+                current_raw = run_inference(
+                    self.model, self.processor, current_messages, MAX_NEW_TOKENS
+                )
+                print(f"[retry {attempt + 1}/3] raw output: {current_raw!r}", file=sys.stderr)
+        raise ValueError(f"MCQ {question_number} failed after 3 attempts: {last_error}")
