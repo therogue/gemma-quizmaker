@@ -108,6 +108,21 @@
     }
 
     #send-btn:disabled { opacity: 0.5; cursor: default; }
+
+    .spinner-bubble {
+      align-self: flex-start;
+      padding: 14px 16px;
+    }
+
+    .spinner {
+      width: 22px; height: 22px;
+      border: 3px solid #e0e0e0;
+      border-top-color: #1a1a2e;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
@@ -130,6 +145,15 @@
   let pendingQuestion = null;
 
   // ── rendering helpers ────────────────────────────────────────────────────
+
+  function showSpinner() {
+    const el = document.createElement('div');
+    el.className = 'spinner-bubble';
+    el.innerHTML = '<div class="spinner"></div>';
+    chat.appendChild(el);
+    chat.scrollTop = chat.scrollHeight;
+    return el;
+  }
 
   function addBubble(role, text) {
     const el = document.createElement('div');
@@ -196,29 +220,34 @@
     sendBtn.disabled = true;
     input.disabled = true;
     addBubble('user', topic);
-    addBubble('system', 'Generating overview and questions…');
+    const spinner = showSpinner();
 
     try {
       const data = await post('/start-topic', { topic, quiz_count: 3 });
+      spinner.remove();
       addBubble('assistant', data.overview);
       for (const q of data.questions) {
         renderQuestion(q);
       }
     } catch (e) {
+      spinner.remove();
       addBubble('system', `Error: ${e.message}`);
     }
   }
 
   async function submitAnswer(itemId, choiceIndex, block) {
     block.querySelectorAll('.choice-btn').forEach(b => b.disabled = true);
+    const spinner = showSpinner();
 
     try {
       const data = await post('/answer', { item_id: itemId, choice_index: choiceIndex });
+      spinner.remove();
       markChoices(block, choiceIndex, data.correct_index);
       const verdict = data.is_correct ? 'Correct!' : 'Not quite.';
       addBubble('assistant', `${verdict}\n${data.rationale}`);
       await advanceTurn();
     } catch (e) {
+      spinner.remove();
       addBubble('system', `Error: ${e.message}`);
     }
   }
