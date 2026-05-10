@@ -4,7 +4,7 @@ Date: 2026-05-10
 
 Branch: `m1-backend-core-loop`
 
-Commit tested: `5a9dd8f M1: add backend core loop`
+Commit tested: current `m1-backend-core-loop` branch after the M1 backend test expansion.
 
 ## Environment
 
@@ -19,24 +19,30 @@ Commit tested: `5a9dd8f M1: add backend core loop`
 Command:
 
 ```bash
-python3 -m unittest tests/test_core_loop.py
+python3 -m unittest discover -s tests
 ```
 
 Result:
 
 ```text
-..
+...............
 ----------------------------------------------------------------------
-Ran 2 tests in 0.018s
+Ran 15 tests in 0.038s
 
 OK
 ```
 
 Coverage from these tests:
 
+- MCQ schema validation rejects malformed model-shaped quiz data.
+- JSON extraction handles plain JSON, fenced JSON, extra surrounding text, and missing JSON.
+- Empty topics, invalid answer indexes, and invalid review intervals are rejected.
 - A wrong quiz answer is promoted into the SQLite-backed review queue.
+- A wrong answer is not due until its cooldown advances.
 - A due review question reappears after the configured turn interval.
 - A correct review answer demotes the item so it is no longer immediately due.
+- Session state and review queue state resume from SQLite.
+- The review queue returns the highest-priority due item first.
 
 ## Syntax Check
 
@@ -50,7 +56,11 @@ Result:
 
 ```text
 Listing 'quizmaker'...
+Listing 'tests'...
 Compiling 'scripts/run_core_loop.py'...
+Compiling 'tests/test_core_loop.py'...
+Compiling 'tests/test_gemma_parsing.py'...
+Compiling 'tests/test_schemas.py'...
 ```
 
 Exit code: `0`
