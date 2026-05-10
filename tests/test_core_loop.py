@@ -91,6 +91,33 @@ class CoreLoopTests(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_answer_item_returns_frontend_result_shape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                loop = CoreLoop(store, FakeGenerator(), review_every=1)
+                _, questions = loop.start_topic("atoms", quiz_count=1)
+
+                result = loop.answer_item(questions[0].item_id, 1)
+
+                self.assertEqual(result.item_id, questions[0].item_id)
+                self.assertFalse(result.is_correct)
+                self.assertEqual(result.correct_index, 0)
+                self.assertEqual(result.rationale, "Rationale 0")
+                self.assertIsNotNone(store.get_quiz_item(questions[0].item_id))
+            finally:
+                store.close()
+
+    def test_answer_item_rejects_unknown_item_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                loop = CoreLoop(store, FakeGenerator(), review_every=1)
+                with self.assertRaises(ValueError):
+                    loop.answer_item(999, 0)
+            finally:
+                store.close()
+
     def test_session_and_review_queue_resume_from_sqlite(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "quiz.sqlite3"

@@ -108,6 +108,13 @@ class QuizStore:
     def add_quiz_items(self, topic: str, mcqs: list[MCQ]) -> list[int]:
         return [self.add_quiz_item(topic, mcq) for mcq in mcqs]
 
+    def get_quiz_item(self, item_id: int) -> ReviewItem | None:
+        row = self.conn.execute(
+            "SELECT * FROM quiz_items WHERE id = ?",
+            (item_id,),
+        ).fetchone()
+        return self._row_to_review_item(row) if row else None
+
     def due_review_item(self) -> ReviewItem | None:
         row = self.conn.execute(
             """

@@ -24,6 +24,14 @@ class AskedQuestion:
     is_review: bool
 
 
+@dataclass(frozen=True)
+class AnswerResult:
+    item_id: int
+    is_correct: bool
+    correct_index: int
+    rationale: str
+
+
 class CoreLoop:
     def __init__(self, store: QuizStore, generator: QuizGenerator, review_every: int = 3) -> None:
         if review_every < 1:
@@ -53,19 +61,32 @@ class CoreLoop:
         ]
 
     def answer(self, asked: AskedQuestion, choice_index: int) -> tuple[bool, str]:
+        result = self.answer_item(asked.item_id, choice_index)
+        return result.is_correct, result.rationale
+
+    def answer_item(self, item_id: int, choice_index: int) -> AnswerResult:
         if not 0 <= choice_index <= 3:
             raise ValueError("choice_index must be 0-3")
 
-        is_correct = choice_index == asked.mcq.answer_index
-        self.store.record_answer(asked.item_id, is_correct)
+        item = self.store.get_quiz_item(item_id)
+        if item is None:
+            raise ValueError(f"quiz item not found: {item_id}")
+
+        is_correct = choice_index == item.mcq.answer_index
+        self.store.record_answer(item.id, is_correct)
         if not is_correct:
-            self.store.mark_wrong_for_review(asked.item_id)
+            self.store.mark_wrong_for_review(item.id)
         self.store.add_history(
             "user",
             "answer",
-            f"item={asked.item_id} choice={choice_index} correct={is_correct}",
+            f"item={item.id} choice={choice_index} correct={is_correct}",
         )
-        return is_correct, asked.mcq.rationale
+        return AnswerResult(
+            item_id=item.id,
+            is_correct=is_correct,
+            correct_index=item.mcq.answer_index,
+            rationale=item.mcq.rationale,
+        )
 
     def next_turn(self) -> AskedQuestion | None:
         self.turn_count += 1
