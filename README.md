@@ -65,3 +65,27 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True uv run scripts/generate_mcq.py 
 ```
 
 The script validates the output with pydantic and retries once on parse or validation failure.
+
+---
+
+## M1 — Backend core loop
+
+Runs the straight-line PoC loop from the roadmap:
+
+- generate a short structured overview for a topic
+- generate an N-question MCQ quiz from that overview
+- grade answers by exact choice index
+- put wrong answers into a SQLite-backed review queue
+- interleave due review questions every K turns
+
+```bash
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True uv run scripts/run_core_loop.py "photosynthesis"
+```
+
+Useful options:
+
+```bash
+uv run scripts/run_core_loop.py "photosynthesis" --count 5 --review-every 2 --db data/quizmaker.sqlite3
+```
+
+Core backend code lives in [`quizmaker/`](quizmaker/) so the future FastAPI/UI layer can call the same loop instead of reimplementing quiz generation, grading, review scheduling, or persistence.
