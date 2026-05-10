@@ -28,9 +28,9 @@ If that runs offline on Gemma 4, the PoC is done.
 **Goal:** prove Gemma 4 runs locally end-to-end and can produce a structured MCQ.
 
 - [x] uv-runnable smoke test (already landed: [scripts/test_gemma4.py](../scripts/test_gemma4.py)).
-- [ ] Pick variant + quantization that fits target hardware. Freeze it.
-- [ ] Prompt that returns an MCQ as **strict JSON** (`{question, choices[4], answer_index, rationale}`).
-- [ ] Parse + validate JSON. Retry once on parse failure.
+- [x] Pick variant + quantization that fits target hardware. Freeze it.
+- [x] Prompt that returns an MCQ as **strict JSON** (`{question, choices[4], answer_index, rationale}`).
+- [x] Parse + validate JSON. Retry once on parse failure.
 
 **Done when:** one shell command emits a valid MCQ JSON about a user-supplied topic.
 
@@ -38,18 +38,18 @@ If that runs offline on Gemma 4, the PoC is done.
 **Goal:** the north-star demo, in a CLI **and** a minimal UI.
 
 Loop:
-- [ ] Topic intake → overview generation (short, structured).
-- [ ] Quiz generation: N MCQs from the overview, JSON-validated.
-- [ ] Grading: exact index match.
-- [ ] In-memory review queue: incorrect answers go in with high priority.
-- [ ] **Turn-based interleaver**: every K user turns, pop one item from the queue and ask it; correct answer demotes priority, wrong promotes it.
-- [ ] Persist queue + history to a single SQLite file so a session can resume.
+- [x] Topic intake → overview generation (short, structured).
+- [x] Quiz generation: N MCQs from the overview, JSON-validated.
+- [x] Grading: exact index match.
+- [x] In-memory review queue: incorrect answers go in with high priority.
+- [x] **Turn-based interleaver**: every K user turns, pop one item from the queue and ask it; correct answer demotes priority, wrong promotes it.
+- [x] Persist queue + history to a single SQLite file so a session can resume.
 
 UI (single-conversation shell):
-- [ ] Pick the smallest workable stack and freeze it (FastAPI + single HTML page is the default — no deliberation).
-- [ ] Chat pane: user input box, message list.
-- [ ] MCQs render as clickable choices; selection sends an answer event.
-- [ ] UI talks to the **same** loop the CLI drives — no parallel implementations.
+- [x] Pick the smallest workable stack and freeze it (FastAPI + single HTML page is the default — no deliberation).
+- [x] Chat pane: user input box, message list.
+- [x] MCQs render as clickable choices; selection sends an answer event.
+- [x] UI talks to the **same** loop the CLI drives — no parallel implementations.
 
 **Done when:** the north-star demo runs both in a terminal and in the browser, offline.
 
@@ -59,15 +59,15 @@ UI (single-conversation shell):
 **Goal:** stop the obvious failure modes that would tank a demo, and put the loop on rails so M3 has a clean API to build a UI against.
 
 Graph + nodes:
-- [ ] Migrate M1's loop to **LangGraph**. Nodes: `overview`, `quiz_gen`, `verify`, `safety`, `grade`, `review_inject`. Shared state object replaces the ad-hoc dict from M1.
+- [x] Migrate M1's loop to **LangGraph**. Nodes: `overview`, `quiz_gen`, `verify`, `safety`, `grade`, `review_inject`. Shared state object replaces the ad-hoc dict from M1.
 - [ ] Verification node: re-prompt Gemma to check `answer_index` is consistent with `question + choices`. Drop items that fail.
 - [ ] Safety node: a single classifier prompt that rejects unsafe topics/questions before they reach the user.
 - [ ] Conditional edges: failed verify → retry once, then drop; failed safety → short-circuit to a polite refusal.
-- [ ] Logging: every node's input/output to a JSONL file for debugging.
+- [x] Logging: every node's input/output to a JSONL file for debugging.
 
 UI surfaces:
 - [ ] Show a small status indicator when an item is dropped by verify/safety (so the user understands why a topic was refused or a question regenerated).
-- [ ] Persist conversation+queue to SQLite so reload restores state in the UI, not just the CLI.
+- [x] Persist conversation+queue to SQLite so reload restores state in the UI, not just the CLI.
 
 **Done when:** running the demo on a list of 20 varied topics produces zero malformed quizzes and zero unsafe outputs, and the UI faithfully reflects verify/safety outcomes.
 
@@ -97,6 +97,7 @@ UI surfaces:
 
 - **Bullet-targeted MCQ generation**: instead of generating questions from the topic string, assign each MCQ to a specific bullet point from the overview. Eliminates duplicate/similar questions and ensures full coverage of the overview. Partially addressed by the structured overview format; the next step is passing the target bullet directly to the quiz-gen prompt.
 - **Bullets as sub-topics**: use each overview bullet point as the seed topic for the *next round* of MCQs. Lets the user drill progressively deeper on whichever fact they got wrong.
+- **Stop button for generation**: a cancel button that aborts the in-flight request while Gemma is generating. Frontend-side abort is trivial via `AbortController`; true server-side cancellation requires streaming responses (SSE or chunked transfer) so the server knows when the client disconnects and can interrupt the model mid-generation.
 
 ## Deferred to post-submission (do not start until M4 ships)
 - Multimodal materials upload (image/PDF → overview/quiz).
