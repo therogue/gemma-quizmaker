@@ -57,6 +57,31 @@
 
     .mcq-block.review { border-left: 4px solid #f0a500; }
 
+    .overview-block {
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-left: 4px solid #1a1a2e;
+      border-radius: 12px;
+      padding: 14px 16px;
+      max-width: 680px;
+      align-self: flex-start;
+    }
+
+    .overview-heading {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #1a1a2e;
+      margin-bottom: 10px;
+    }
+
+    .overview-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+
+    .overview-list li { font-size: 0.92rem; line-height: 1.5; }
+
+    .overview-label { font-weight: 600; }
+
     .mcq-question { font-weight: 600; margin-bottom: 10px; font-size: 0.95rem; }
 
     .mcq-choices { display: flex; flex-direction: column; gap: 6px; }
@@ -109,6 +134,49 @@
 
     #send-btn:disabled { opacity: 0.5; cursor: default; }
 
+    .session { max-width: 720px; }
+
+    .session > summary {
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 4px;
+      color: #1a1a2e;
+      font-weight: 600;
+      font-size: 0.95rem;
+      user-select: none;
+    }
+
+    .session > summary::-webkit-details-marker { display: none; }
+
+    .session > summary::before {
+      content: '▶';
+      font-size: 0.65rem;
+      color: #999;
+      transition: transform 0.15s;
+      flex-shrink: 0;
+    }
+
+    .session[open] > summary::before { transform: rotate(90deg); }
+
+    .session-body {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 4px 0 8px 16px;
+    }
+
+    .section-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: #aaa;
+      padding: 4px 0;
+    }
+
     .spinner-bubble {
       align-self: flex-start;
       padding: 14px 16px;
@@ -141,16 +209,79 @@
   const input = document.getElementById('topic-input');
   const sendBtn = document.getElementById('send-btn');
 
-  // pending question waiting for an answer
-  let pendingQuestion = null;
+  // where session content is appended; starts at chat level, moves to session body
+  let currentContainer = chat;
+  let currentSessionEl = null;
+  let reviewLabelShown = false;
+
+  // ── session management ───────────────────────────────────────────────────
+
+  function startSession(topic) {
+    if (currentSessionEl) currentSessionEl.removeAttribute('open');
+
+    const details = document.createElement('details');
+    details.open = true;
+    details.className = 'session';
+
+    const summary = document.createElement('summary');
+    summary.textContent = topic;
+    details.appendChild(summary);
+
+    const body = document.createElement('div');
+    body.className = 'session-body';
+    details.appendChild(body);
+
+    chat.appendChild(details);
+    currentSessionEl = details;
+    currentContainer = body;
+    reviewLabelShown = false;
+    chat.scrollTop = chat.scrollHeight;
+  }
 
   // ── rendering helpers ────────────────────────────────────────────────────
+
+  function addSectionLabel(text) {
+    const el = document.createElement('div');
+    el.className = 'section-label';
+    el.textContent = text;
+    currentContainer.appendChild(el);
+  }
+
+  function renderOverview(overview) {
+    const block = document.createElement('div');
+    block.className = 'overview-block';
+
+    const heading = document.createElement('div');
+    heading.className = 'overview-heading';
+    heading.textContent = 'Key Facts';
+    block.appendChild(heading);
+
+    const ul = document.createElement('ul');
+    ul.className = 'overview-list';
+    for (const point of overview.points) {
+      const li = document.createElement('li');
+      const colonIdx = point.indexOf(': ');
+      if (colonIdx !== -1) {
+        const label = document.createElement('span');
+        label.className = 'overview-label';
+        label.textContent = point.slice(0, colonIdx) + ': ';
+        li.appendChild(label);
+        li.appendChild(document.createTextNode(point.slice(colonIdx + 2)));
+      } else {
+        li.textContent = point;
+      }
+      ul.appendChild(li);
+    }
+    block.appendChild(ul);
+    currentContainer.appendChild(block);
+    chat.scrollTop = chat.scrollHeight;
+  }
 
   function showSpinner() {
     const el = document.createElement('div');
     el.className = 'spinner-bubble';
     el.innerHTML = '<div class="spinner"></div>';
-    chat.appendChild(el);
+    currentContainer.appendChild(el);
     chat.scrollTop = chat.scrollHeight;
     return el;
   }
@@ -159,7 +290,8 @@
     const el = document.createElement('div');
     el.className = `bubble ${role}`;
     el.textContent = text;
-    chat.appendChild(el);
+    // user bubbles sit at the top chat level; everything else goes inside the session
+    (role === 'user' ? chat : currentContainer).appendChild(el);
     chat.scrollTop = chat.scrollHeight;
     return el;
   }
@@ -168,10 +300,9 @@
     const block = document.createElement('div');
     block.className = 'mcq-block' + (q.is_review ? ' review' : '');
 
-    const label = q.is_review ? '🔁 Review: ' : '';
     const qEl = document.createElement('div');
     qEl.className = 'mcq-question';
-    qEl.textContent = label + q.question;
+    qEl.textContent = q.question;
     block.appendChild(qEl);
 
     const choicesEl = document.createElement('div');
@@ -187,7 +318,7 @@
     });
 
     block.appendChild(choicesEl);
-    chat.appendChild(block);
+    currentContainer.appendChild(block);
     chat.scrollTop = chat.scrollHeight;
     return block;
   }
@@ -224,12 +355,14 @@
     sendBtn.disabled = true;
     input.disabled = true;
     addBubble('user', topic);
+    startSession(topic);
     const spinner = showSpinner();
 
     try {
       const data = await post('/start-topic', { topic, quiz_count: 3 });
       spinner.remove();
-      addBubble('assistant', data.overview);
+      renderOverview(data.overview);
+      addSectionLabel('Questions');
       for (const q of data.questions) {
         renderQuestion(q);
       }
@@ -266,7 +399,10 @@
     try {
       const data = await post('/turn');
       if (data.review) {
-        addBubble('system', 'Time for a review question.');
+        if (!reviewLabelShown) {
+          addSectionLabel('Review Questions');
+          reviewLabelShown = true;
+        }
         renderQuestion(data.review);
       }
     } catch (e) {

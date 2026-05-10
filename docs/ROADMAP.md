@@ -93,6 +93,11 @@ UI surfaces:
 
 ---
 
+## Ideas for future development
+
+- **Bullet-targeted MCQ generation**: instead of generating questions from the topic string, assign each MCQ to a specific bullet point from the overview. Eliminates duplicate/similar questions and ensures full coverage of the overview. Partially addressed by the structured overview format; the next step is passing the target bullet directly to the quiz-gen prompt.
+- **Bullets as sub-topics**: use each overview bullet point as the seed topic for the *next round* of MCQs. Lets the user drill progressively deeper on whichever fact they got wrong.
+
 ## Deferred to post-submission (do not start until M4 ships)
 - Multimodal materials upload (image/PDF → overview/quiz).
 - Tooling: web search (cached corpus), file read, graph/equation generator.

@@ -55,8 +55,12 @@ class QuestionOut(BaseModel):
     choices: list[str]
 
 
+class OverviewOut(BaseModel):
+    points: list[str]
+
+
 class StartTopicResponse(BaseModel):
-    overview: str
+    overview: OverviewOut
     questions: list[QuestionOut]
 
 
@@ -96,7 +100,7 @@ async def start_topic(body: StartTopicRequest) -> StartTopicResponse:
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return StartTopicResponse(
-        overview=overview,
+        overview=OverviewOut(points=overview.points),
         questions=[_question_out(q) for q in questions],
     )
 

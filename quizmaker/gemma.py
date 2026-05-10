@@ -7,7 +7,7 @@ import re
 import sys
 from typing import Any
 
-from quizmaker.schemas import MCQ
+from quizmaker.schemas import MCQ, Overview, Overview
 
 MODEL_ID = "google/gemma-4-E2B-it"
 MAX_NEW_TOKENS = 768
@@ -54,27 +54,47 @@ class GemmaQuizGenerator:
         self.model = model
         self.processor = processor
 
-    def generate_overview(self, topic: str) -> str:
+    def generate_overview(self, topic: str) -> Overview:
         messages = [
             {
                 "role": "system",
                 "content": (
-                    "You are a study assistant. When given a topic, you immediately write "
-                    "a structured overview. You never ask for clarification. You never ask "
-                    "the user to provide a topic. You output only the overview."
+                    "You are a study assistant. Output ONLY a valid JSON object "
+                    "with no markdown, no comments, and no surrounding text."
                 ),
             },
             {
                 "role": "user",
                 "content": (
                     f"Topic: {topic}\n\n"
-                    "Write a structured overview of this topic now. "
-                    "Use 4-6 bullet points. Each bullet must state a concrete, quiz-worthy fact. "
-                    "Output only the bullet points, no preamble."
+                    "Return a JSON object with exactly this field:\n"
+                    '  "points": array of 4-6 strings, each a concrete quiz-worthy fact.\n'
+                    '    Prefer the format "Label: description" for each point '
+                    '(e.g. "Nucleus: contains protons and neutrons") '
+                    "but plain text is acceptable if a label does not fit.\n"
+                    "No markdown, no asterisks, plain text only inside the strings."
                 ),
             },
         ]
-        return run_inference(self.model, self.processor, messages, MAX_NEW_TOKENS).strip()
+        raw = run_inference(self.model, self.processor, messages, MAX_NEW_TOKENS)
+        print(f"[overview] raw output: {raw!r}", file=sys.stderr)
+        try:
+            return Overview.from_mapping(json.loads(extract_json_object(raw)))
+        except Exception as err:
+            print(f"[overview retry] failed: {err}", file=sys.stderr)
+            retry_messages = messages + [
+                {"role": "assistant", "content": raw},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Your output was invalid ({err}). "
+                        "Return ONLY the valid JSON object with no extra text."
+                    ),
+                },
+            ]
+            raw2 = run_inference(self.model, self.processor, retry_messages, MAX_NEW_TOKENS)
+            print(f"[overview retry] raw output: {raw2!r}", file=sys.stderr)
+            return Overview.from_mapping(json.loads(extract_json_object(raw2)))
 
     def generate_quiz(self, topic: str, overview: str, count: int = 3) -> list[MCQ]:
         mcqs: list[MCQ] = []

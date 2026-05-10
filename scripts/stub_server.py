@@ -72,12 +72,14 @@ def start(req: StartRequest):
         })
 
     return {
-        "overview": (
-            f"Stub overview for '{req.topic}':\n"
-            "• Fact one about this topic\n"
-            "• Fact two about this topic\n"
-            "• Fact three about this topic"
-        ),
+        "overview": {
+            "points": [
+                f"Definition: {req.topic} is a stub topic used for UI development",
+                "Fact one: this is the first quiz-worthy fact about the topic",
+                "Fact two: this is the second quiz-worthy fact about the topic",
+                "Fact three: this is the third quiz-worthy fact about the topic",
+            ]
+        },
         "questions": questions,
     }
 

@@ -9,7 +9,7 @@ from typing import Any, Protocol, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from quizmaker.schemas import MCQ, ReviewItem
+from quizmaker.schemas import MCQ, Overview, ReviewItem
 from quizmaker.storage import QuizStore
 
 
@@ -24,7 +24,7 @@ GRAPH_NODE_NAMES = (
 
 
 class QuizGenerator(Protocol):
-    def generate_overview(self, topic: str) -> str:
+    def generate_overview(self, topic: str) -> Overview:
         ...
 
     def generate_quiz(self, topic: str, overview: str, count: int = 3) -> list[MCQ]:
@@ -100,7 +100,8 @@ class CoreLoop:
         self.graph = self._build_graph()
         session = store.load_session()
         self.topic = session["topic"]
-        self.overview = session["overview"]
+        overview_raw = session["overview"]
+        self.overview: Overview | None = Overview.from_json(overview_raw) if overview_raw else None
         self.turn_count = session["turn_count"]
 
     def _build_graph(self):
@@ -134,7 +135,7 @@ class CoreLoop:
 
     def _overview_node(self, state: CoreLoopState) -> CoreLoopState:
         output: CoreLoopState = {
-            "overview": self.generator.generate_overview(state["topic"]),
+            "overview": self.generator.generate_overview(state["topic"]).to_json(),
         }
         self._log_node("overview", state, output)
         return output
@@ -173,7 +174,7 @@ class CoreLoop:
             }
         else:
             output = {
-                "overview": "I cannot help with that topic.",
+                "overview": Overview(points=["I cannot help with that topic."]).to_json(),
                 "mcqs": [],
             }
         self._log_node("safety", state, output)
@@ -212,7 +213,7 @@ class CoreLoop:
     def _review_inject_node(self, state: CoreLoopState) -> CoreLoopState:
         self.turn_count += 1
         self.store.decrement_cooldowns()
-        self.store.save_session(self.topic, self.overview, self.turn_count)
+        self.store.save_session(self.topic, self.overview.to_json() if self.overview else "", self.turn_count)
 
         review: AskedQuestion | None = None
         if self.turn_count % self.review_every == 0:
@@ -264,7 +265,7 @@ class CoreLoop:
             return [self._jsonable(item) for item in value]
         return value
 
-    def start_topic(self, topic: str, quiz_count: int = 3) -> tuple[str, list[AskedQuestion]]:
+    def start_topic(self, topic: str, quiz_count: int = 3) -> tuple[Overview, list[AskedQuestion]]:
         self.topic = topic.strip()
         if not self.topic:
             raise ValueError("topic cannot be empty")
@@ -276,12 +277,13 @@ class CoreLoop:
                 "quiz_count": quiz_count,
             }
         )
-        self.overview = state["overview"]
+        overview_json = state["overview"]
+        self.overview = Overview.from_json(overview_json)
         mcqs = state["mcqs"]
         item_ids = self.store.add_quiz_items(self.topic, mcqs)
         self.turn_count = 0
-        self.store.save_session(self.topic, self.overview, self.turn_count)
-        self.store.add_history("assistant", "overview", self.overview)
+        self.store.save_session(self.topic, overview_json, self.turn_count)
+        self.store.add_history("assistant", "overview", overview_json)
         return self.overview, [
             AskedQuestion(item_id=item_id, mcq=mcq, is_review=False)
             for item_id, mcq in zip(item_ids, mcqs)
