@@ -58,13 +58,19 @@ class GemmaQuizGenerator:
         messages = [
             {
                 "role": "system",
-                "content": "You explain learning topics clearly and concisely.",
+                "content": (
+                    "You are a study assistant. When given a topic, you immediately write "
+                    "a structured overview. You never ask for clarification. You never ask "
+                    "the user to provide a topic. You output only the overview."
+                ),
             },
             {
                 "role": "user",
                 "content": (
-                    f"Give a short structured overview of this topic: {topic}\n\n"
-                    "Use 4-6 compact bullet points. Focus on facts that can be quizzed."
+                    f"Topic: {topic}\n\n"
+                    "Write a structured overview of this topic now. "
+                    "Use 4-6 bullet points. Each bullet must state a concrete, quiz-worthy fact. "
+                    "Output only the bullet points, no preamble."
                 ),
             },
         ]
