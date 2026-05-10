@@ -233,6 +233,9 @@
       for (const q of data.questions) {
         renderQuestion(q);
       }
+      input.value = '';
+      input.disabled = false;
+      sendBtn.disabled = false;
     } catch (e) {
       spinner.remove();
       addBubble('system', `Error: ${e.message} — try a different topic.`);
