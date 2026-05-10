@@ -273,7 +273,7 @@
       ul.appendChild(li);
     }
     block.appendChild(ul);
-    currentContainer.appendChild(block);
+    chat.appendChild(block);
     chat.scrollTop = chat.scrollHeight;
   }
 
@@ -355,13 +355,13 @@
     sendBtn.disabled = true;
     input.disabled = true;
     addBubble('user', topic);
-    startSession(topic);
     const spinner = showSpinner();
 
     try {
       const data = await post('/start-topic', { topic, quiz_count: 3 });
       spinner.remove();
       renderOverview(data.overview);
+      startSession(topic);
       addSectionLabel('Questions');
       for (const q of data.questions) {
         renderQuestion(q);

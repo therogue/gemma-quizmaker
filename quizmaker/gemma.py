@@ -123,7 +123,7 @@ class GemmaQuizGenerator:
                     f"{prior_questions}\n\n"
                     "Return a JSON object with exactly these fields:\n"
                     '  "question": string\n'
-                    '  "choices": array of exactly 4 strings\n'
+                    '  "choices": array of exactly 4 strings — do NOT include A/B/C/D labels, the UI adds those\n'
                     '  "answer_index": integer 0-3 (index of the correct choice)\n'
                     '  "rationale": string explaining why the answer is correct'
                 ),

@@ -101,7 +101,10 @@ class CoreLoop:
         session = store.load_session()
         self.topic = session["topic"]
         overview_raw = session["overview"]
-        self.overview: Overview | None = Overview.from_json(overview_raw) if overview_raw else None
+        try:
+            self.overview: Overview | None = Overview.from_json(overview_raw) if overview_raw else None
+        except (ValueError, Exception):
+            self.overview = None
         self.turn_count = session["turn_count"]
 
     def _build_graph(self):
