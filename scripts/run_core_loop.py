@@ -72,7 +72,8 @@ def main() -> None:
         overview, questions = loop.start_topic(args.topic, quiz_count=args.count)
 
         print("\n[Overview]")
-        print(overview)
+        for point in overview.points:
+            print(f"  - {point}")
 
         for asked in questions:
             _ask_and_grade(loop, asked)

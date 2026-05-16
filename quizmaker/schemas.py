@@ -2,8 +2,30 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
+
+
+@dataclass(frozen=True)
+class Overview:
+    points: list[str]  # each may be "Label: description" or plain text
+
+    @classmethod
+    def from_mapping(cls, data: dict[str, Any]) -> "Overview":
+        points = data.get("points")
+        if not isinstance(points, list) or not points:
+            raise ValueError("points must be a non-empty list")
+        if not all(isinstance(p, str) and p.strip() for p in points):
+            raise ValueError("each point must be a non-empty string")
+        return cls(points=[p.strip() for p in points])
+
+    def to_json(self) -> str:
+        return json.dumps({"points": self.points})
+
+    @classmethod
+    def from_json(cls, text: str) -> "Overview":
+        return cls.from_mapping(json.loads(text))
 
 
 @dataclass(frozen=True)

@@ -7,7 +7,7 @@ import re
 import sys
 from typing import Any
 
-from quizmaker.schemas import MCQ
+from quizmaker.schemas import MCQ, Overview, Overview
 
 MODEL_ID = "google/gemma-4-E2B-it"
 MAX_NEW_TOKENS = 768
@@ -54,21 +54,47 @@ class GemmaQuizGenerator:
         self.model = model
         self.processor = processor
 
-    def generate_overview(self, topic: str) -> str:
+    def generate_overview(self, topic: str) -> Overview:
         messages = [
             {
                 "role": "system",
-                "content": "You explain learning topics clearly and concisely.",
+                "content": (
+                    "You are a study assistant. Output ONLY a valid JSON object "
+                    "with no markdown, no comments, and no surrounding text."
+                ),
             },
             {
                 "role": "user",
                 "content": (
-                    f"Give a short structured overview of this topic: {topic}\n\n"
-                    "Use 4-6 compact bullet points. Focus on facts that can be quizzed."
+                    f"Topic: {topic}\n\n"
+                    "Return a JSON object with exactly this field:\n"
+                    '  "points": array of 4-6 strings, each a concrete quiz-worthy fact.\n'
+                    '    Prefer the format "Label: description" for each point '
+                    '(e.g. "Nucleus: contains protons and neutrons") '
+                    "but plain text is acceptable if a label does not fit.\n"
+                    "No markdown, no asterisks, plain text only inside the strings."
                 ),
             },
         ]
-        return run_inference(self.model, self.processor, messages, MAX_NEW_TOKENS).strip()
+        raw = run_inference(self.model, self.processor, messages, MAX_NEW_TOKENS)
+        print(f"[overview] raw output: {raw!r}", file=sys.stderr)
+        try:
+            return Overview.from_mapping(json.loads(extract_json_object(raw)))
+        except Exception as err:
+            print(f"[overview retry] failed: {err}", file=sys.stderr)
+            retry_messages = messages + [
+                {"role": "assistant", "content": raw},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Your output was invalid ({err}). "
+                        "Return ONLY the valid JSON object with no extra text."
+                    ),
+                },
+            ]
+            raw2 = run_inference(self.model, self.processor, retry_messages, MAX_NEW_TOKENS)
+            print(f"[overview retry] raw output: {raw2!r}", file=sys.stderr)
+            return Overview.from_mapping(json.loads(extract_json_object(raw2)))
 
     def generate_quiz(self, topic: str, overview: str, count: int = 3) -> list[MCQ]:
         mcqs: list[MCQ] = []
@@ -97,26 +123,38 @@ class GemmaQuizGenerator:
                     f"{prior_questions}\n\n"
                     "Return a JSON object with exactly these fields:\n"
                     '  "question": string\n'
-                    '  "choices": array of exactly 4 strings\n'
+                    '  "choices": array of exactly 4 strings — do NOT include A/B/C/D labels, the UI adds those\n'
                     '  "answer_index": integer 0-3 (index of the correct choice)\n'
                     '  "rationale": string explaining why the answer is correct'
                 ),
             },
         ]
         raw = run_inference(self.model, self.processor, messages, MAX_NEW_TOKENS)
-        try:
-            return MCQ.from_mapping(json.loads(extract_json_object(raw)))
-        except Exception as first_error:
-            print(f"[retry] MCQ {question_number} failed validation: {first_error}", file=sys.stderr)
-            retry_messages = messages + [
-                {"role": "assistant", "content": raw},
-                {
-                    "role": "user",
-                    "content": (
-                        f"Your output was invalid ({first_error}). "
-                        "Return ONLY the valid JSON object."
-                    ),
-                },
-            ]
-            raw2 = run_inference(self.model, self.processor, retry_messages, MAX_NEW_TOKENS)
-            return MCQ.from_mapping(json.loads(extract_json_object(raw2)))
+        print(f"[mcq {question_number}] raw output: {raw!r}", file=sys.stderr)
+        last_error: Exception
+        current_messages = messages
+        current_raw = raw
+        for attempt in range(3):
+            try:
+                return MCQ.from_mapping(json.loads(extract_json_object(current_raw)))
+            except Exception as err:
+                last_error = err
+                print(
+                    f"[retry {attempt + 1}/3] MCQ {question_number} failed: {err}",
+                    file=sys.stderr,
+                )
+                current_messages = current_messages + [
+                    {"role": "assistant", "content": current_raw},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Your output was invalid ({err}). "
+                            "Return ONLY the valid JSON object with no extra text."
+                        ),
+                    },
+                ]
+                current_raw = run_inference(
+                    self.model, self.processor, current_messages, MAX_NEW_TOKENS
+                )
+                print(f"[retry {attempt + 1}/3] raw output: {current_raw!r}", file=sys.stderr)
+        raise ValueError(f"MCQ {question_number} failed after 3 attempts: {last_error}")

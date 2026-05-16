@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from quizmaker.core_loop import CoreLoop
-from quizmaker.schemas import MCQ
+from quizmaker.schemas import MCQ, Overview
 from quizmaker.storage import QuizStore
 
 
@@ -21,7 +21,7 @@ EXPECTED_M2_NODES = {
 
 class FakeGenerator:
     def generate_overview(self, topic):
-        return f"Overview for {topic}"
+        return Overview(points=[f"Overview for {topic}"])
 
     def generate_quiz(self, topic, overview, count=3):
         return [
@@ -41,7 +41,7 @@ class SequenceGenerator:
         self.quiz_calls = 0
 
     def generate_overview(self, topic):
-        return f"Overview for {topic}"
+        return Overview(points=[f"Overview for {topic}"])
 
     def generate_quiz(self, topic, overview, count=3):
         self.quiz_calls += 1
@@ -132,7 +132,7 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
 
                 overview, questions = loop.start_topic("cells", quiz_count=1)
 
-                self.assertEqual(overview, "Overview for cells")
+                self.assertEqual(overview.points, ["Overview for cells"])
                 self.assertEqual(len(questions), 1)
                 self.assertEqual(
                     read_log_nodes(log_path),
@@ -207,7 +207,7 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
 
                 overview, questions = loop.start_topic("unsafe topic", quiz_count=1)
 
-                self.assertIn("cannot help", overview.lower())
+                self.assertIn("cannot help", overview.points[0].lower())
                 self.assertEqual(questions, [])
                 self.assertIsNone(store.due_review_item())
             finally:
