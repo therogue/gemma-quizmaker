@@ -25,7 +25,12 @@ Response shape:
 
 ```json
 {
-  "overview": "Short structured overview...",
+  "overview": {
+    "points": [
+      "Label: description of key fact",
+      "Another key fact"
+    ]
+  },
   "questions": [
     {
       "item_id": 1,

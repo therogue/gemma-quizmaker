@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gemma Quizmaker</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f5f5f5;
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+    }
+
+    header {
+      padding: 12px 20px;
+      background: #1a1a2e;
+      color: #fff;
+      font-weight: 600;
+      font-size: 1rem;
+      letter-spacing: 0.02em;
+    }
+
+    #chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .bubble {
+      max-width: 680px;
+      padding: 12px 16px;
+      border-radius: 12px;
+      line-height: 1.55;
+      font-size: 0.95rem;
+      white-space: pre-wrap;
+    }
+
+    .bubble.assistant { background: #fff; border: 1px solid #e0e0e0; align-self: flex-start; }
+    .bubble.user      { background: #1a1a2e; color: #fff; align-self: flex-end; }
+    .bubble.system    { background: #f0f0f0; color: #666; align-self: center; font-size: 0.85rem; font-style: italic; }
+
+    .mcq-block {
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-radius: 12px;
+      padding: 14px 16px;
+      max-width: 680px;
+      align-self: flex-start;
+    }
+
+    .mcq-block.review { border-left: 4px solid #f0a500; }
+
+    .overview-block {
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-left: 4px solid #1a1a2e;
+      border-radius: 12px;
+      padding: 14px 16px;
+      max-width: 680px;
+      align-self: flex-start;
+    }
+
+    .overview-heading {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #1a1a2e;
+      margin-bottom: 10px;
+    }
+
+    .overview-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+
+    .overview-list li { font-size: 0.92rem; line-height: 1.5; }
+
+    .overview-label { font-weight: 600; }
+
+    .mcq-question { font-weight: 600; margin-bottom: 10px; font-size: 0.95rem; }
+
+    .mcq-choices { display: flex; flex-direction: column; gap: 6px; }
+
+    .choice-btn {
+      text-align: left;
+      background: #f5f5f5;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 0.92rem;
+      transition: background 0.15s;
+    }
+
+    .choice-btn:hover:not(:disabled) { background: #e8e8e8; }
+    .choice-btn:disabled { cursor: default; }
+    .choice-btn.correct  { background: #d4edda; border-color: #28a745; }
+    .choice-btn.wrong    { background: #f8d7da; border-color: #dc3545; }
+    .choice-btn.revealed { background: #d4edda; border-color: #28a745; }
+
+    #input-row {
+      display: flex;
+      gap: 8px;
+      padding: 12px 20px;
+      background: #fff;
+      border-top: 1px solid #e0e0e0;
+    }
+
+    #topic-input {
+      flex: 1;
+      padding: 10px 14px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      font-size: 0.95rem;
+    }
+
+    #topic-input:focus { outline: none; border-color: #1a1a2e; }
+
+    #send-btn {
+      padding: 10px 20px;
+      background: #1a1a2e;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+
+    #send-btn:disabled { opacity: 0.5; cursor: default; }
+
+    .session { max-width: 720px; }
+
+    .session > summary {
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 4px;
+      color: #1a1a2e;
+      font-weight: 600;
+      font-size: 0.95rem;
+      user-select: none;
+    }
+
+    .session > summary::-webkit-details-marker { display: none; }
+
+    .session > summary::before {
+      content: '▶';
+      font-size: 0.65rem;
+      color: #999;
+      transition: transform 0.15s;
+      flex-shrink: 0;
+    }
+
+    .session[open] > summary::before { transform: rotate(90deg); }
+
+    .session-body {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 4px 0 8px 16px;
+    }
+
+    .section-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: #aaa;
+      padding: 4px 0;
+    }
+
+    .spinner-bubble {
+      align-self: flex-start;
+      padding: 14px 16px;
+    }
+
+    .spinner {
+      width: 22px; height: 22px;
+      border: 3px solid #e0e0e0;
+      border-top-color: #1a1a2e;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<header>Gemma Quizmaker</header>
+
+<div id="chat"></div>
+
+<div id="input-row">
+  <input id="topic-input" type="text" placeholder="Enter a topic to study…" />
+  <button id="send-btn">Start</button>
+</div>
+
+<script>
+  const chat = document.getElementById('chat');
+  const input = document.getElementById('topic-input');
+  const sendBtn = document.getElementById('send-btn');
+
+  // where session content is appended; starts at chat level, moves to session body
+  let currentContainer = chat;
+  let currentSessionEl = null;
+  let reviewLabelShown = false;
+
+  // ── session management ───────────────────────────────────────────────────
+
+  function startSession(topic) {
+    if (currentSessionEl) currentSessionEl.removeAttribute('open');
+
+    const details = document.createElement('details');
+    details.open = true;
+    details.className = 'session';
+
+    const summary = document.createElement('summary');
+    summary.textContent = topic;
+    details.appendChild(summary);
+
+    const body = document.createElement('div');
+    body.className = 'session-body';
+    details.appendChild(body);
+
+    chat.appendChild(details);
+    currentSessionEl = details;
+    currentContainer = body;
+    reviewLabelShown = false;
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  // ── rendering helpers ────────────────────────────────────────────────────
+
+  function addSectionLabel(text) {
+    const el = document.createElement('div');
+    el.className = 'section-label';
+    el.textContent = text;
+    currentContainer.appendChild(el);
+  }
+
+  function renderOverview(overview) {
+    const block = document.createElement('div');
+    block.className = 'overview-block';
+
+    const heading = document.createElement('div');
+    heading.className = 'overview-heading';
+    heading.textContent = 'Key Facts';
+    block.appendChild(heading);
+
+    const ul = document.createElement('ul');
+    ul.className = 'overview-list';
+    for (const point of overview.points) {
+      const li = document.createElement('li');
+      const colonIdx = point.indexOf(': ');
+      if (colonIdx !== -1) {
+        const label = document.createElement('span');
+        label.className = 'overview-label';
+        label.textContent = point.slice(0, colonIdx) + ': ';
+        li.appendChild(label);
+        li.appendChild(document.createTextNode(point.slice(colonIdx + 2)));
+      } else {
+        li.textContent = point;
+      }
+      ul.appendChild(li);
+    }
+    block.appendChild(ul);
+    chat.appendChild(block);
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  function showSpinner(container = null) {
+    const el = document.createElement('div');
+    el.className = 'spinner-bubble';
+    el.innerHTML = '<div class="spinner"></div>';
+    (container || currentContainer).appendChild(el);
+    chat.scrollTop = chat.scrollHeight;
+    return el;
+  }
+
+  function addBubble(role, text) {
+    const el = document.createElement('div');
+    el.className = `bubble ${role}`;
+    el.textContent = text;
+    // user bubbles sit at the top chat level; everything else goes inside the session
+    (role === 'user' ? chat : currentContainer).appendChild(el);
+    chat.scrollTop = chat.scrollHeight;
+    return el;
+  }
+
+  function renderQuestion(q) {
+    const block = document.createElement('div');
+    block.className = 'mcq-block' + (q.is_review ? ' review' : '');
+
+    const qEl = document.createElement('div');
+    qEl.className = 'mcq-question';
+    qEl.textContent = q.question;
+    block.appendChild(qEl);
+
+    const choicesEl = document.createElement('div');
+    choicesEl.className = 'mcq-choices';
+
+    const letters = ['A', 'B', 'C', 'D'];
+    q.choices.forEach((text, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'choice-btn';
+      btn.textContent = `${letters[i]}. ${text}`;
+      btn.onclick = () => submitAnswer(q.item_id, i, block);
+      choicesEl.appendChild(btn);
+    });
+
+    block.appendChild(choicesEl);
+    currentContainer.appendChild(block);
+    chat.scrollTop = chat.scrollHeight;
+    return block;
+  }
+
+  function markChoices(block, choiceIndex, correctIndex) {
+    const btns = block.querySelectorAll('.choice-btn');
+    btns.forEach((btn, i) => {
+      btn.disabled = true;
+      if (i === choiceIndex && i === correctIndex) btn.classList.add('correct');
+      else if (i === choiceIndex)                   btn.classList.add('wrong');
+      else if (i === correctIndex)                  btn.classList.add('revealed');
+    });
+  }
+
+  // ── API calls ────────────────────────────────────────────────────────────
+
+  async function post(path, body = {}) {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try { detail = (await res.json()).detail ?? detail; } catch {}
+      throw new Error(detail);
+    }
+    return res.json();
+  }
+
+  // ── flow ─────────────────────────────────────────────────────────────────
+
+  async function startTopic(topic) {
+    sendBtn.disabled = true;
+    input.disabled = true;
+    addBubble('user', topic);
+    const spinner = showSpinner(chat);
+
+    try {
+      const data = await post('/start-topic', { topic, quiz_count: 3 });
+      spinner.remove();
+      renderOverview(data.overview);
+      startSession(topic);
+      addSectionLabel('Questions');
+      for (const q of data.questions) {
+        renderQuestion(q);
+      }
+      input.value = '';
+      input.disabled = false;
+      sendBtn.disabled = false;
+    } catch (e) {
+      spinner.remove();
+      addBubble('system', `Error: ${e.message} — try a different topic.`);
+      input.disabled = false;
+      sendBtn.disabled = false;
+      input.focus();
+    }
+  }
+
+  async function submitAnswer(itemId, choiceIndex, block) {
+    block.querySelectorAll('.choice-btn').forEach(b => b.disabled = true);
+    const spinner = showSpinner();
+
+    try {
+      const data = await post('/answer', { item_id: itemId, choice_index: choiceIndex });
+      spinner.remove();
+      markChoices(block, choiceIndex, data.correct_index);
+      const verdict = data.is_correct ? 'Correct!' : 'Not quite.';
+      addBubble('assistant', `${verdict}\n${data.rationale}`);
+      await advanceTurn();
+    } catch (e) {
+      spinner.remove();
+      addBubble('system', `Error: ${e.message}`);
+    }
+  }
+
+  async function advanceTurn() {
+    try {
+      const data = await post('/turn');
+      if (data.review) {
+        if (!reviewLabelShown) {
+          addSectionLabel('Review Questions');
+          reviewLabelShown = true;
+        }
+        renderQuestion(data.review);
+      }
+    } catch (e) {
+      addBubble('system', `Error: ${e.message}`);
+    }
+  }
+
+  // ── event wiring ──────────────────────────────────────────────────────────
+
+  sendBtn.addEventListener('click', () => {
+    const topic = input.value.trim();
+    if (!topic) return;
+    startTopic(topic);
+  });
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') sendBtn.click();
+  });
+</script>
+</body>
+</html>
