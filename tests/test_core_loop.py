@@ -3,13 +3,13 @@ import unittest
 from pathlib import Path
 
 from quizmaker.core_loop import CoreLoop
-from quizmaker.schemas import MCQ
+from quizmaker.schemas import MCQ, Overview
 from quizmaker.storage import QuizStore
 
 
 class FakeGenerator:
     def generate_overview(self, topic):
-        return f"Overview for {topic}"
+        return Overview(points=[f"Overview for {topic}"])
 
     def generate_quiz(self, topic, overview, count=3):
         return [
@@ -133,7 +133,7 @@ class CoreLoopTests(unittest.TestCase):
             try:
                 resumed_loop = CoreLoop(reopened_store, FakeGenerator(), review_every=1)
                 self.assertEqual(resumed_loop.topic, "atoms")
-                self.assertEqual(resumed_loop.overview, "Overview for atoms")
+                self.assertEqual(resumed_loop.overview.points, ["Overview for atoms"])
 
                 review = resumed_loop.next_turn()
                 self.assertIsNotNone(review)

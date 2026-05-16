@@ -15,87 +15,64 @@ See [`docs/CONCEPT.md`](docs/CONCEPT.md) for the full concept and [`docs/ROADMAP
 
 ---
 
-## M0 — Smoke test
-
-Verifies that Gemma 4 loads and runs inference on your hardware.
+## Setup
 
 ```bash
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True uv run scripts/test_gemma4.py
+uv sync   # creates .venv and installs all dependencies (once)
 ```
 
-**Example output:**
+After that, run any command in either of these equivalent ways:
 
+```bash
+uv run <cmd>                 # no activation needed — uv uses .venv automatically
+source .venv/bin/activate    # activate once, then run commands directly
 ```
-[mem:before-load] process RSS = 0.48 GB
-[mem:before-load] cuda0 (NVIDIA GeForce RTX 3070 Laptop GPU): allocated=0.00 GB reserved=0.00 GB peak=0.00 GB
-[mem:after-load] process RSS = 0.90 GB
-[mem:after-load] cuda0 (NVIDIA GeForce RTX 3070 Laptop GPU): allocated=6.38 GB reserved=6.41 GB peak=6.38 GB
-[mem:after-load] model params=3.94B weights=6.24 GB dtype=torch.bfloat16 device=cuda:0
-[image+text]
-Based on the image provided, which is a grey, blurred, and largely featureless background,
-it is impossible to identify any candy or any animal on it.
-[text]
-{'role': 'assistant', 'content': 'Here are a few short jokes about saving RAM...'}
+
+### CUDA memory (optional)
+
+If you hit CUDA OOM errors, prefix model-loading commands with:
+
+```bash
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True <cmd>
 ```
 
 ---
 
-## M0 — MCQ generator
-
-Generates a single validated multiple-choice question for a given topic.
+## UI + API server
 
 ```bash
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True uv run scripts/generate_mcq.py "photosynthesis"
+uv run uvicorn app.main:app --port 8000
 ```
 
-**Example output:**
+Model loading takes 30–60 seconds on first start. Once ready:
 
-```json
-{
-  "question": "What is the primary pigment responsible for capturing light energy for photosynthesis in plants?",
-  "choices": [
-    "Carotenoids",
-    "Anthocyanins",
-    "Chlorophyll a",
-    "Carotenoids"
-  ],
-  "answer_index": 2,
-  "rationale": "Chlorophyll a is the primary pigment used by plants for capturing light energy during the light-dependent reactions of photosynthesis. While other pigments are involved, chlorophyll a is the main energy absorber."
-}
-```
-
-The script validates the output with pydantic and retries once on parse or validation failure.
+- UI: `http://localhost:8000`
+- Interactive API docs: `http://localhost:8000/docs`
 
 ---
 
-## M1 — Backend core loop
+## CLI runner
 
-Runs the straight-line PoC loop from the roadmap:
-
-- generate a short structured overview for a topic
-- generate an N-question MCQ quiz from that overview
-- grade answers by exact choice index
-- put wrong answers into a SQLite-backed review queue
-- interleave due review questions every K turns
+Runs the loop in a terminal without the UI — useful for fast iteration:
 
 ```bash
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True uv run scripts/run_core_loop.py "photosynthesis"
-```
-
-Useful options:
-
-```bash
+uv run scripts/run_core_loop.py "photosynthesis"
 uv run scripts/run_core_loop.py "photosynthesis" --count 5 --review-every 2 --db data/quizmaker.sqlite3
 ```
 
-Core backend code lives in [`quizmaker/`](quizmaker/) so the FastAPI layer calls the same loop instead of reimplementing quiz generation, grading, review scheduling, or persistence.
+---
+
+## Tests
+
+```bash
+uv run python -m unittest discover -s tests -v
+```
 
 ---
 
-## API server
+## Debug scripts
 
-```bash
-uv run uvicorn app.main:app --reload
-```
+Low-level M0 spike scripts, useful for verifying Gemma loads and generates on your hardware:
 
-Interactive docs: `http://localhost:8000/docs`
+- `scripts/test_gemma4.py` — smoke test: loads model, runs inference
+- `scripts/generate_mcq.py "topic"` — generates and validates a single MCQ
