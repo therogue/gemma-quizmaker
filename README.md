@@ -68,20 +68,34 @@ The script validates the output with pydantic and retries once on parse or valid
 
 ---
 
-## API server (stub)
+## M1 — Backend core loop
 
-FastAPI scaffolding with a `/chat` endpoint. Returns `"hello"` for now — real Gemma inference will be wired in at M1.
+Runs the straight-line PoC loop from the roadmap:
+
+- generate a short structured overview for a topic
+- generate an N-question MCQ quiz from that overview
+- grade answers by exact choice index
+- put wrong answers into a SQLite-backed review queue
+- interleave due review questions every K turns
+
+```bash
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True uv run scripts/run_core_loop.py "photosynthesis"
+```
+
+Useful options:
+
+```bash
+uv run scripts/run_core_loop.py "photosynthesis" --count 5 --review-every 2 --db data/quizmaker.sqlite3
+```
+
+Core backend code lives in [`quizmaker/`](quizmaker/) so the FastAPI layer calls the same loop instead of reimplementing quiz generation, grading, review scheduling, or persistence.
+
+---
+
+## API server
 
 ```bash
 uv run uvicorn app.main:app --reload
 ```
 
 Interactive docs: `http://localhost:8000/docs`
-
-Test with curl:
-
-```bash
-curl -s -X POST http://localhost:8000/chat \
-     -H "Content-Type: application/json" \
-     -d '{"message": "hello"}' | python -m json.tool
-```

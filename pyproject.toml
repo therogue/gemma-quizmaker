@@ -6,4 +6,20 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "pydantic>=2.7",
+    "transformers>=4.51.0",
+    "torch",
+    "torchvision",
+    "pillow",
+    "accelerate",
+    "bitsandbytes",
+    "langgraph>=1.1.10",
 ]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu121" }
+torchvision = { index = "pytorch-cu121" }
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
