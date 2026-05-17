@@ -492,16 +492,16 @@
     let content;
     try { content = JSON.parse(msg.content_json); } catch { return; }
 
-    if (msg.kind === 'overview') {
+    if (msg.kind === 'topic') {
+      appendBubble('user', content.text || '');
+    } else if (msg.kind === 'overview') {
       appendOverview(content);
     } else if (msg.kind === 'chat') {
       appendBubble(msg.role, content.text || '');
-    } else if (msg.kind === 'answer') {
-      appendAnswerResult(content.correct, '');
-    } else if (msg.kind === 'suggestions') {
-      // suggestions are on-demand only (Suggest Topics button); skip in history
     }
-    // question, review: live in the panel; skip in thread
+    // answer: shown inline on panel cards, not in thread
+    // question, review: live in the panel, not in thread
+    // suggestions: on-demand only via button, not in thread
   }
 
   // Rebuild panel from message history, grouped by topic section.

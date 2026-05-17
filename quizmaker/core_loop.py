@@ -307,6 +307,9 @@ class CoreLoop:
 
         self.store.save_conversation(conversation_id, topic, overview_json, turn_count=0)
         self.store.add_message(
+            conversation_id, "user", "topic", json.dumps({"text": topic}),
+        )
+        self.store.add_message(
             conversation_id, "assistant", "overview",
             json.dumps({"topic": topic, "points": overview.points}),
         )
