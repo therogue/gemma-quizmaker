@@ -254,6 +254,28 @@
 
     #panel-empty { margin: auto; color: #ccc; font-size: 0.85rem; text-align: center; }
 
+    .topic-section { border-bottom: 1px solid #f0f0f0; }
+    .topic-section:last-child { border-bottom: none; }
+
+    .topic-header {
+      padding: 8px 12px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      list-style: none;
+      color: #1a1a2e;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+    }
+    .topic-header::-webkit-details-marker { display: none; }
+    .topic-header::before { content: '▶'; font-size: 0.6rem; transition: transform 0.15s; }
+    details[open] > .topic-header::before { transform: rotate(90deg); }
+
+    .topic-questions { padding: 0 8px 8px; display: flex; flex-direction: column; gap: 8px; }
+
     .q-card {
       border: 1px solid #e0e0e0;
       border-radius: 10px;
@@ -377,6 +399,7 @@
 
   let activeConvId = null;
   let pendingTurns = 0;
+  let currentTopicSection = null; // <details> element for the active topic
 
   // ── API ────────────────────────────────────────────────────────────────────
 
@@ -481,42 +504,59 @@
     // question, review: live in the panel; skip in thread
   }
 
-  // Rebuild panel from message history: all questions with their answers shown inline
+  // Rebuild panel from message history, grouped by topic section.
   function renderPanelFromHistory(messages) {
-    const questions = new Map(); // item_id → MCQ content
-    const answers   = new Map(); // item_id → {choice_index, correct}
-    const reviewed  = new Set(); // item_ids that were shown as review
+    // First pass: collect answers and reviews
+    const answers  = new Map(); // item_id → {choice_index, correct}
+    const reviewed = new Set(); // item_ids shown as review
 
     for (const msg of messages) {
       let c;
       try { c = JSON.parse(msg.content_json); } catch { continue; }
-      if (msg.kind === 'question' && msg.quiz_item_id != null) {
-        questions.set(msg.quiz_item_id, c);
-      } else if (msg.kind === 'answer' && c.item_id != null) {
-        answers.set(c.item_id, c);
-      } else if (msg.kind === 'review' && msg.quiz_item_id != null) {
-        reviewed.add(msg.quiz_item_id);
+      if (msg.kind === 'answer' && c.item_id != null)         answers.set(c.item_id, c);
+      if (msg.kind === 'review' && msg.quiz_item_id != null)  reviewed.add(msg.quiz_item_id);
+    }
+
+    // Second pass: create sections in order, all collapsed; last one opened at end
+    const sections = [];
+    let section = null;
+    let fallbackIdx = 0;
+
+    for (const msg of messages) {
+      let c;
+      try { c = JSON.parse(msg.content_json); } catch { continue; }
+
+      if (msg.kind === 'overview') {
+        const name = c.topic || `Topic ${++fallbackIdx}`;
+        section = openTopicSection(name, false); // collapsed; will open last one below
+        sections.push(section);
+      } else if (msg.kind === 'question' && msg.quiz_item_id != null) {
+        if (!section) { section = openTopicSection('Questions', false); sections.push(section); }
+        const card = appendPanelQuestion(
+          { item_id: msg.quiz_item_id, is_review: reviewed.has(msg.quiz_item_id), question: c.question, choices: c.choices },
+          section,
+        );
+        const ans = answers.get(msg.quiz_item_id);
+        if (ans != null) {
+          card.querySelectorAll('.choice-btn').forEach((btn, i) => {
+            btn.disabled = true;
+            if (i === ans.choice_index && ans.correct) btn.classList.add('correct');
+            else if (i === ans.choice_index)           btn.classList.add('wrong');
+            else if (i === c.answer_index)             btn.classList.add('revealed');
+          });
+          const rat = document.createElement('div');
+          rat.className = 'q-rationale' + (ans.correct ? '' : ' wrong');
+          rat.textContent = c.rationale || '';
+          card.appendChild(rat);
+          card.classList.add('answered');
+        }
       }
     }
 
-    for (const [item_id, mcq] of questions) {
-      appendPanelQuestion({ item_id, is_review: reviewed.has(item_id), question: mcq.question, choices: mcq.choices });
-      const ans = answers.get(item_id);
-      if (ans != null) {
-        const card = activeQs.querySelector(`[data-item-id="${item_id}"]`);
-        if (!card) continue;
-        card.querySelectorAll('.choice-btn').forEach((btn, i) => {
-          btn.disabled = true;
-          if (i === ans.choice_index && ans.correct)  btn.classList.add('correct');
-          else if (i === ans.choice_index)             btn.classList.add('wrong');
-          else if (i === mcq.answer_index)             btn.classList.add('revealed');
-        });
-        const rat = document.createElement('div');
-        rat.className = 'q-rationale' + (ans.correct ? '' : ' wrong');
-        rat.textContent = mcq.rationale || '';
-        card.appendChild(rat);
-        card.classList.add('answered');
-      }
+    // Open only the most recent topic section
+    if (sections.length > 0) {
+      sections[sections.length - 1].open = true;
+      currentTopicSection = sections[sections.length - 1];
     }
   }
 
@@ -632,14 +672,38 @@
     activeQs.innerHTML = '';
     activeQs.appendChild(panelEmpty);
     panelEmpty.style.display = '';
+    currentTopicSection = null;
+  }
+
+  function openTopicSection(topicName, expanded = true) {
+    // Collapse current section if open
+    if (currentTopicSection) currentTopicSection.open = false;
+    panelEmpty.style.display = 'none';
+
+    const section = document.createElement('details');
+    section.className = 'topic-section';
+    section.open = expanded;
+
+    const summary = document.createElement('summary');
+    summary.className = 'topic-header';
+    summary.textContent = topicName;
+    section.appendChild(summary);
+
+    const body = document.createElement('div');
+    body.className = 'topic-questions';
+    section.appendChild(body);
+
+    activeQs.appendChild(section);
+    currentTopicSection = section;
+    return section;
   }
 
   function renderPanelQuestions(questions) {
     for (const q of questions) appendPanelQuestion(q);
   }
 
-  function appendPanelQuestion(q) {
-    panelEmpty.style.display = 'none';
+  // Append a question card to a section (default: currentTopicSection) and return the card.
+  function appendPanelQuestion(q, section = currentTopicSection) {
     const card = document.createElement('div');
     card.className = 'q-card' + (q.is_review ? ' review' : '');
     card.dataset.itemId = q.item_id;
@@ -659,13 +723,10 @@
       choicesEl.appendChild(btn);
     });
     card.appendChild(choicesEl);
-    activeQs.appendChild(card);
-  }
 
-  function removeQuestionCard(itemId) {
-    const card = activeQs.querySelector(`[data-item-id="${itemId}"]`);
-    if (card) card.remove();
-    if (!activeQs.querySelector('.q-card')) panelEmpty.style.display = '';
+    const target = section ? section.querySelector('.topic-questions') : activeQs;
+    target.appendChild(card);
+    return card;
   }
 
   // ── Enable/disable inputs ──────────────────────────────────────────────────
@@ -705,8 +766,8 @@
       const data = await post(`/conversations/${activeConvId}/start-topic`, { topic, quiz_count: 3 });
       spinner.remove();
       appendOverview(data.overview);
-      clearPanel();
       pendingTurns = 0;
+      openTopicSection(topic);
       renderPanelQuestions(data.questions);
       const conv = await get(`/conversations/${activeConvId}`);
       updateSidebarTitle(activeConvId, conv.title);

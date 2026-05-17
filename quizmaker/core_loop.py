@@ -306,7 +306,10 @@ class CoreLoop:
             self.store.set_conversation_title(conversation_id, topic)
 
         self.store.save_conversation(conversation_id, topic, overview_json, turn_count=0)
-        self.store.add_message(conversation_id, "assistant", "overview", overview_json)
+        self.store.add_message(
+            conversation_id, "assistant", "overview",
+            json.dumps({"topic": topic, "points": overview.points}),
+        )
         for item_id, mcq in zip(item_ids, mcqs):
             self.store.add_message(
                 conversation_id,
