@@ -235,6 +235,17 @@ class ChatResponse(BaseModel):
     review: QuestionOut | None
 
 
+class MessageRequest(BaseModel):
+    text: str
+
+
+class MessageResponse(BaseModel):
+    overview: OverviewOut | None = None
+    questions: list[QuestionOut] | None = None
+    reply: str | None = None
+    review: QuestionOut | None = None
+
+
 class ActionRequest(BaseModel):
     action: str
     count: int = 3
@@ -372,6 +383,39 @@ def chat(conversation_id: int, body: ChatRequest) -> ChatResponse:
     return ChatResponse(
         reply=reply,
         review=_question_out(review) if review else None,
+    )
+
+
+_CHAT_STARTERS = {
+    "what", "why", "how", "when", "where", "who", "explain", "tell",
+    "can", "is", "are", "does", "do", "did", "describe", "compare", "give",
+    "could", "would", "should", "define", "list", "name",
+}
+
+
+def _is_chat_intent(text: str) -> bool:
+    if text.endswith("?"):
+        return True
+    first = text.split()[0].lower().rstrip("?!,.")
+    return first in _CHAT_STARTERS
+
+
+@app.post("/conversations/{conversation_id}/message", response_model=MessageResponse)
+def message(conversation_id: int, body: MessageRequest) -> MessageResponse:
+    _get_conversation_or_404(conversation_id)
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="text cannot be empty")
+    if _is_chat_intent(text):
+        reply, review = _loop.chat(conversation_id, text)
+        return MessageResponse(reply=reply, review=_question_out(review) if review else None)
+    try:
+        overview, questions = _loop.start_topic(conversation_id, text, quiz_count=3)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return MessageResponse(
+        overview=OverviewOut(points=overview.points),
+        questions=[_question_out(q) for q in questions],
     )
 
 
