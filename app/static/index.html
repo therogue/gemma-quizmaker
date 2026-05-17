@@ -226,8 +226,8 @@
     /* ── Right panel: questions ───────────────────────────────────────────── */
 
     #panel {
-      width: 380px;
-      min-width: 320px;
+      width: 440px;
+      min-width: 340px;
       background: #fff;
       display: flex;
       flex-direction: column;
@@ -351,7 +351,7 @@
 
 <!-- Right panel: active questions -->
 <div id="panel">
-  <div id="panel-header">Active Questions</div>
+  <div id="panel-header">Questions</div>
   <div id="active-questions">
     <div id="panel-empty">No active questions</div>
   </div>
@@ -376,6 +376,7 @@
   const newConvBtn  = document.getElementById('new-conv-btn');
 
   let activeConvId = null;
+  let pendingTurns = 0;
 
   // ── API ────────────────────────────────────────────────────────────────────
 
@@ -444,6 +445,7 @@
     convList.prepend(el);
     clearThread('Start by entering a topic above.');
     clearPanel();
+    pendingTurns = 0;
     setInputsEnabled(true);
   });
 
@@ -451,13 +453,14 @@
 
   async function selectConversation(id) {
     activeConvId = id;
+    pendingTurns = 0;
     setSidebarActive(id);
     clearThread();
     clearPanel();
     setInputsEnabled(false);
     const data = await get(`/conversations/${id}`);
     for (const msg of data.messages) renderHistoryMessage(msg);
-    renderPanelQuestions(data.active_questions);
+    renderPanelFromHistory(data.messages);
     thread.scrollTop = thread.scrollHeight;
     setInputsEnabled(true);
   }
@@ -476,6 +479,45 @@
       appendSuggestions(content.suggestions || []);
     }
     // question, review: live in the panel; skip in thread
+  }
+
+  // Rebuild panel from message history: all questions with their answers shown inline
+  function renderPanelFromHistory(messages) {
+    const questions = new Map(); // item_id → MCQ content
+    const answers   = new Map(); // item_id → {choice_index, correct}
+    const reviewed  = new Set(); // item_ids that were shown as review
+
+    for (const msg of messages) {
+      let c;
+      try { c = JSON.parse(msg.content_json); } catch { continue; }
+      if (msg.kind === 'question' && msg.quiz_item_id != null) {
+        questions.set(msg.quiz_item_id, c);
+      } else if (msg.kind === 'answer' && c.item_id != null) {
+        answers.set(c.item_id, c);
+      } else if (msg.kind === 'review' && msg.quiz_item_id != null) {
+        reviewed.add(msg.quiz_item_id);
+      }
+    }
+
+    for (const [item_id, mcq] of questions) {
+      appendPanelQuestion({ item_id, is_review: reviewed.has(item_id), question: mcq.question, choices: mcq.choices });
+      const ans = answers.get(item_id);
+      if (ans != null) {
+        const card = activeQs.querySelector(`[data-item-id="${item_id}"]`);
+        if (!card) continue;
+        card.querySelectorAll('.choice-btn').forEach((btn, i) => {
+          btn.disabled = true;
+          if (i === ans.choice_index && ans.correct)  btn.classList.add('correct');
+          else if (i === ans.choice_index)             btn.classList.add('wrong');
+          else if (i === mcq.answer_index)             btn.classList.add('revealed');
+        });
+        const rat = document.createElement('div');
+        rat.className = 'q-rationale' + (ans.correct ? '' : ' wrong');
+        rat.textContent = mcq.rationale || '';
+        card.appendChild(rat);
+        card.classList.add('answered');
+      }
+    }
   }
 
   // ── Thread ─────────────────────────────────────────────────────────────────
@@ -664,6 +706,7 @@
       spinner.remove();
       appendOverview(data.overview);
       clearPanel();
+      pendingTurns = 0;
       renderPanelQuestions(data.questions);
       // Fetch suggestions that start_topic auto-generated
       const conv = await get(`/conversations/${activeConvId}`);
@@ -717,9 +760,15 @@
       rat.textContent = data.rationale;
       card.appendChild(rat);
       card.classList.add('answered');
-      // Advance turn (may inject a review question)
-      const turn = await post(`/conversations/${activeConvId}/turn`).catch(() => null);
-      if (turn?.review) appendPanelQuestion(turn.review);
+      // Batch turns: only advance when all current cards are answered
+      pendingTurns++;
+      if (!activeQs.querySelector('.q-card:not(.answered)')) {
+        for (let i = 0; i < pendingTurns; i++) {
+          const turn = await post(`/conversations/${activeConvId}/turn`).catch(() => null);
+          if (turn?.review) appendPanelQuestion(turn.review);
+        }
+        pendingTurns = 0;
+      }
     } catch (e) {
       appendSystemMsg(`Error: ${e.message}`);
       card.querySelectorAll('.choice-btn').forEach(b => b.disabled = false);
