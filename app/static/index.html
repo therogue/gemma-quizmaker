@@ -476,7 +476,7 @@
     } else if (msg.kind === 'answer') {
       appendAnswerResult(content.correct, '');
     } else if (msg.kind === 'suggestions') {
-      appendSuggestions(content.suggestions || []);
+      // suggestions are on-demand only (Suggest Topics button); skip in history
     }
     // question, review: live in the panel; skip in thread
   }
@@ -708,12 +708,7 @@
       clearPanel();
       pendingTurns = 0;
       renderPanelQuestions(data.questions);
-      // Fetch suggestions that start_topic auto-generated
       const conv = await get(`/conversations/${activeConvId}`);
-      const suggs = conv.messages.filter(m => m.kind === 'suggestions');
-      if (suggs.length) {
-        try { appendSuggestions(JSON.parse(suggs[suggs.length - 1].content_json).suggestions || []); } catch {}
-      }
       updateSidebarTitle(activeConvId, conv.title);
       topicInput.value = '';
     } catch (e) {
