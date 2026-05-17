@@ -38,7 +38,25 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True <cmd>
 
 ---
 
-## UI + API server
+## Stub server (no GPU required)
+
+For UI development and testing without a GPU, use the stub server. It runs the real storage and routing code but replaces Gemma with a fast fake generator:
+
+```bash
+rm -f data/stub_quizmaker.sqlite3   # clear state if needed
+uv run uvicorn scripts.stub_server:app --reload --port 8001
+```
+
+Once running:
+
+- UI: `http://localhost:8001`
+- API docs: `http://localhost:8001/docs`
+
+Hard-refresh the browser (`Ctrl+Shift+R`) if the UI looks like an older version.
+
+---
+
+## UI + API server (GPU required)
 
 ```bash
 uv run uvicorn app.main:app --port 8000
