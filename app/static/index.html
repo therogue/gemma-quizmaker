@@ -9,22 +9,73 @@
 
     body {
       font-family: system-ui, sans-serif;
+      display: flex;
+      height: 100dvh;
+      overflow: hidden;
       background: #f5f5f5;
+    }
+
+    /* ── Sidebar ──────────────────────────────────────────────────────────── */
+
+    #sidebar {
+      width: 220px;
+      min-width: 220px;
+      background: #1a1a2e;
       display: flex;
       flex-direction: column;
-      height: 100dvh;
-    }
-
-    header {
-      padding: 12px 20px;
-      background: #1a1a2e;
       color: #fff;
-      font-weight: 600;
-      font-size: 1rem;
-      letter-spacing: 0.02em;
     }
 
-    #chat {
+    #sidebar-title {
+      padding: 16px 14px 12px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      opacity: 0.6;
+    }
+
+    #new-conv-btn {
+      margin: 0 10px 10px;
+      padding: 8px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      color: #fff;
+      font-size: 0.86rem;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    #new-conv-btn:hover { background: rgba(255,255,255,0.16); }
+
+    #conv-list { flex: 1; overflow-y: auto; padding: 0 6px 10px; }
+
+    .conv-item {
+      padding: 8px 10px;
+      border-radius: 7px;
+      cursor: pointer;
+      font-size: 0.86rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      opacity: 0.7;
+      transition: background 0.12s, opacity 0.12s;
+      margin-bottom: 2px;
+    }
+    .conv-item:hover { background: rgba(255,255,255,0.1); opacity: 1; }
+    .conv-item.active { background: rgba(255,255,255,0.16); opacity: 1; font-weight: 600; }
+
+    /* ── Center: chat thread ──────────────────────────────────────────────── */
+
+    #chat-col {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid #e0e0e0;
+    }
+
+    #thread {
       flex: 1;
       overflow-y: auto;
       padding: 20px;
@@ -33,221 +84,411 @@
       gap: 12px;
     }
 
+    .empty-state {
+      margin: auto;
+      color: #bbb;
+      font-size: 0.92rem;
+      text-align: center;
+    }
+
     .bubble {
-      max-width: 680px;
-      padding: 12px 16px;
+      max-width: 580px;
+      padding: 11px 15px;
       border-radius: 12px;
       line-height: 1.55;
-      font-size: 0.95rem;
+      font-size: 0.92rem;
       white-space: pre-wrap;
     }
-
-    .bubble.assistant { background: #fff; border: 1px solid #e0e0e0; align-self: flex-start; }
     .bubble.user      { background: #1a1a2e; color: #fff; align-self: flex-end; }
-    .bubble.system    { background: #f0f0f0; color: #666; align-self: center; font-size: 0.85rem; font-style: italic; }
-
-    .mcq-block {
-      background: #fff;
-      border: 1px solid #e0e0e0;
-      border-radius: 12px;
-      padding: 14px 16px;
-      max-width: 680px;
-      align-self: flex-start;
-    }
-
-    .mcq-block.review { border-left: 4px solid #f0a500; }
+    .bubble.assistant { background: #fff; border: 1px solid #e0e0e0; align-self: flex-start; }
+    .bubble.system    { background: #f0f0f0; color: #888; align-self: center;
+                        font-size: 0.82rem; font-style: italic; }
 
     .overview-block {
       background: #fff;
       border: 1px solid #e0e0e0;
       border-left: 4px solid #1a1a2e;
       border-radius: 12px;
-      padding: 14px 16px;
-      max-width: 680px;
+      padding: 13px 16px;
+      max-width: 580px;
       align-self: flex-start;
     }
-
     .overview-heading {
-      font-size: 0.75rem;
+      font-size: 0.7rem;
       font-weight: 700;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
       color: #1a1a2e;
-      margin-bottom: 10px;
+      margin-bottom: 9px;
     }
-
-    .overview-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
-
-    .overview-list li { font-size: 0.92rem; line-height: 1.5; }
-
+    .overview-list { list-style: none; display: flex; flex-direction: column; gap: 5px; }
+    .overview-list li { font-size: 0.9rem; line-height: 1.5; }
     .overview-label { font-weight: 600; }
 
-    .mcq-question { font-weight: 600; margin-bottom: 10px; font-size: 0.95rem; }
-
-    .mcq-choices { display: flex; flex-direction: column; gap: 6px; }
-
-    .choice-btn {
-      text-align: left;
-      background: #f5f5f5;
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      padding: 8px 12px;
-      cursor: pointer;
-      font-size: 0.92rem;
-      transition: background 0.15s;
-    }
-
-    .choice-btn:hover:not(:disabled) { background: #e8e8e8; }
-    .choice-btn:disabled { cursor: default; }
-    .choice-btn.correct  { background: #d4edda; border-color: #28a745; }
-    .choice-btn.wrong    { background: #f8d7da; border-color: #dc3545; }
-    .choice-btn.revealed { background: #d4edda; border-color: #28a745; }
-
-    #input-row {
-      display: flex;
-      gap: 8px;
-      padding: 12px 20px;
+    .answer-result {
       background: #fff;
-      border-top: 1px solid #e0e0e0;
-    }
-
-    #topic-input {
-      flex: 1;
-      padding: 10px 14px;
-      border: 1px solid #ccc;
-      border-radius: 8px;
-      font-size: 0.95rem;
-    }
-
-    #topic-input:focus { outline: none; border-color: #1a1a2e; }
-
-    #send-btn {
-      padding: 10px 20px;
-      background: #1a1a2e;
-      color: #fff;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 0.95rem;
-      font-weight: 600;
-    }
-
-    #send-btn:disabled { opacity: 0.5; cursor: default; }
-
-    .session { max-width: 720px; }
-
-    .session > summary {
-      cursor: pointer;
-      list-style: none;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 4px;
-      color: #1a1a2e;
-      font-weight: 600;
-      font-size: 0.95rem;
-      user-select: none;
-    }
-
-    .session > summary::-webkit-details-marker { display: none; }
-
-    .session > summary::before {
-      content: '▶';
-      font-size: 0.65rem;
-      color: #999;
-      transition: transform 0.15s;
-      flex-shrink: 0;
-    }
-
-    .session[open] > summary::before { transform: rotate(90deg); }
-
-    .session-body {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      padding: 4px 0 8px 16px;
-    }
-
-    .section-label {
-      font-size: 0.72rem;
-      font-weight: 700;
-      letter-spacing: 0.09em;
-      text-transform: uppercase;
-      color: #aaa;
-      padding: 4px 0;
-    }
-
-    .spinner-bubble {
+      border: 1px solid #e0e0e0;
+      border-radius: 12px;
+      padding: 11px 15px;
+      max-width: 580px;
       align-self: flex-start;
-      padding: 14px 16px;
+      font-size: 0.9rem;
+      line-height: 1.5;
     }
+    .answer-result.correct { border-left: 4px solid #28a745; }
+    .answer-result.wrong   { border-left: 4px solid #dc3545; }
+    .answer-verdict { font-weight: 600; margin-bottom: 3px; }
 
+    .suggestions-block {
+      align-self: flex-start;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      max-width: 580px;
+    }
+    .suggestions-label {
+      width: 100%;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #bbb;
+      margin-bottom: 2px;
+    }
+    .suggestion-chip {
+      padding: 5px 13px;
+      background: #f0f0f0;
+      border: 1px solid #ddd;
+      border-radius: 20px;
+      font-size: 0.84rem;
+      cursor: pointer;
+      transition: background 0.12s, border-color 0.12s;
+    }
+    .suggestion-chip:hover { background: #dde8ff; border-color: #1a1a2e; }
+
+    .spinner-row { align-self: flex-start; padding: 6px 2px; }
     .spinner {
-      width: 22px; height: 22px;
+      width: 20px; height: 20px;
       border: 3px solid #e0e0e0;
       border-top-color: #1a1a2e;
       border-radius: 50%;
       animation: spin 0.7s linear infinite;
     }
-
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Input area ───────────────────────────────────────────────────────── */
+
+    #input-area {
+      background: #fff;
+      border-top: 1px solid #e0e0e0;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    .input-row { display: flex; gap: 8px; align-items: center; }
+
+    .input-row label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #bbb;
+      min-width: 34px;
+    }
+
+    .input-row input {
+      flex: 1;
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 0.92rem;
+      background: #f8f8f8;
+      min-width: 0;
+    }
+    .input-row input:focus { outline: none; border-color: #1a1a2e; background: #fff; }
+    .input-row input:disabled { opacity: 0.45; }
+
+    .input-row button {
+      padding: 8px 16px;
+      background: #1a1a2e;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.88rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .input-row button:disabled { opacity: 0.35; cursor: default; }
+
+    /* ── Right panel: questions ───────────────────────────────────────────── */
+
+    #panel {
+      width: 300px;
+      min-width: 300px;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #panel-header {
+      padding: 14px 14px 10px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #1a1a2e;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    #active-questions {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    #panel-empty { margin: auto; color: #ccc; font-size: 0.85rem; text-align: center; }
+
+    .q-card {
+      border: 1px solid #e0e0e0;
+      border-radius: 10px;
+      padding: 12px;
+    }
+    .q-card.review { border-left: 4px solid #f0a500; }
+
+    .q-question {
+      font-size: 0.87rem;
+      font-weight: 600;
+      margin-bottom: 9px;
+      line-height: 1.45;
+    }
+
+    .q-choices { display: flex; flex-direction: column; gap: 5px; }
+
+    .choice-btn {
+      text-align: left;
+      background: #f8f8f8;
+      border: 1px solid #ddd;
+      border-radius: 7px;
+      padding: 7px 10px;
+      cursor: pointer;
+      font-size: 0.84rem;
+      transition: background 0.1s;
+    }
+    .choice-btn:hover:not(:disabled) { background: #ebebeb; }
+    .choice-btn:disabled { cursor: default; }
+    .choice-btn.correct  { background: #d4edda; border-color: #28a745; }
+    .choice-btn.wrong    { background: #f8d7da; border-color: #dc3545; }
+    .choice-btn.revealed { background: #d4edda; border-color: #28a745; }
+
+    #panel-actions {
+      padding: 10px;
+      border-top: 1px solid #f0f0f0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .panel-btn {
+      width: 100%;
+      padding: 8px;
+      background: #f8f8f8;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 0.84rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    .panel-btn:hover:not(:disabled) { background: #ebebeb; }
+    .panel-btn:disabled { opacity: 0.35; cursor: default; }
   </style>
 </head>
 <body>
 
-<header>Gemma Quizmaker</header>
+<!-- Sidebar -->
+<aside id="sidebar">
+  <div id="sidebar-title">Quizmaker</div>
+  <button id="new-conv-btn">+ New Conversation</button>
+  <div id="conv-list"></div>
+</aside>
 
-<div id="chat"></div>
+<!-- Center: thread + inputs -->
+<div id="chat-col">
+  <div id="thread">
+    <div class="empty-state" id="thread-empty">Select or create a conversation</div>
+  </div>
+  <div id="input-area">
+    <div class="input-row">
+      <label>Topic</label>
+      <input id="topic-input" placeholder="Enter a topic to study…" disabled />
+      <button id="topic-btn" disabled>Start</button>
+    </div>
+    <div class="input-row">
+      <label>Chat</label>
+      <input id="chat-input" placeholder="Ask a question…" disabled />
+      <button id="chat-btn" disabled>Send</button>
+    </div>
+  </div>
+</div>
 
-<div id="input-row">
-  <input id="topic-input" type="text" placeholder="Enter a topic to study…" />
-  <button id="send-btn">Start</button>
+<!-- Right panel: active questions -->
+<div id="panel">
+  <div id="panel-header">Active Questions</div>
+  <div id="active-questions">
+    <div id="panel-empty">No active questions</div>
+  </div>
+  <div id="panel-actions">
+    <button class="panel-btn" id="more-q-btn" disabled>+ More Questions</button>
+    <button class="panel-btn" id="suggest-btn" disabled>Suggest Topics</button>
+  </div>
 </div>
 
 <script>
-  const chat = document.getElementById('chat');
-  const input = document.getElementById('topic-input');
-  const sendBtn = document.getElementById('send-btn');
+  const thread      = document.getElementById('thread');
+  const threadEmpty = document.getElementById('thread-empty');
+  const topicInput  = document.getElementById('topic-input');
+  const topicBtn    = document.getElementById('topic-btn');
+  const chatInput   = document.getElementById('chat-input');
+  const chatBtn     = document.getElementById('chat-btn');
+  const activeQs    = document.getElementById('active-questions');
+  const panelEmpty  = document.getElementById('panel-empty');
+  const moreQBtn    = document.getElementById('more-q-btn');
+  const suggestBtn  = document.getElementById('suggest-btn');
+  const convList    = document.getElementById('conv-list');
+  const newConvBtn  = document.getElementById('new-conv-btn');
 
-  // where session content is appended; starts at chat level, moves to session body
-  let currentContainer = chat;
-  let currentSessionEl = null;
-  let reviewLabelShown = false;
+  let activeConvId = null;
 
-  // ── session management ───────────────────────────────────────────────────
+  // ── API ────────────────────────────────────────────────────────────────────
 
-  function startSession(topic) {
-    if (currentSessionEl) currentSessionEl.removeAttribute('open');
-
-    const details = document.createElement('details');
-    details.open = true;
-    details.className = 'session';
-
-    const summary = document.createElement('summary');
-    summary.textContent = topic;
-    details.appendChild(summary);
-
-    const body = document.createElement('div');
-    body.className = 'session-body';
-    details.appendChild(body);
-
-    chat.appendChild(details);
-    currentSessionEl = details;
-    currentContainer = body;
-    reviewLabelShown = false;
-    chat.scrollTop = chat.scrollHeight;
+  async function api(method, path, body = null) {
+    const opts = { method, headers: {} };
+    if (body !== null) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    const res = await fetch(path, opts);
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try { detail = (await res.json()).detail ?? detail; } catch {}
+      throw new Error(detail);
+    }
+    return res.json();
   }
 
-  // ── rendering helpers ────────────────────────────────────────────────────
+  const get  = path        => api('GET', path);
+  const post = (path, body) => api('POST', path, body ?? {});
 
-  function addSectionLabel(text) {
+  // ── Sidebar ────────────────────────────────────────────────────────────────
+
+  async function loadSidebar() {
+    const convs = await get('/conversations');
+    renderSidebar(convs);
+    if (convs.length === 1) selectConversation(convs[0].id);
+  }
+
+  function renderSidebar(convs) {
+    convList.innerHTML = '';
+    for (const c of convs) addSidebarItem(c);
+  }
+
+  function addSidebarItem(c) {
     const el = document.createElement('div');
-    el.className = 'section-label';
-    el.textContent = text;
-    currentContainer.appendChild(el);
+    el.className = 'conv-item' + (c.id === activeConvId ? ' active' : '');
+    el.textContent = c.title;
+    el.dataset.id = c.id;
+    el.onclick = () => selectConversation(c.id);
+    convList.appendChild(el);
+    return el;
   }
 
-  function renderOverview(overview) {
+  function setSidebarActive(id) {
+    convList.querySelectorAll('.conv-item').forEach(el =>
+      el.classList.toggle('active', +el.dataset.id === id)
+    );
+  }
+
+  function updateSidebarTitle(id, title) {
+    const el = convList.querySelector(`[data-id="${id}"]`);
+    if (el) el.textContent = title;
+  }
+
+  newConvBtn.addEventListener('click', async () => {
+    const conv = await post('/conversations');
+    activeConvId = conv.id;
+    setSidebarActive(conv.id);
+    // Prepend to sidebar
+    const el = document.createElement('div');
+    el.className = 'conv-item active';
+    el.textContent = conv.title;
+    el.dataset.id = conv.id;
+    el.onclick = () => selectConversation(conv.id);
+    convList.prepend(el);
+    clearThread('Start by entering a topic above.');
+    clearPanel();
+    setInputsEnabled(true);
+  });
+
+  // ── Conversation loading ───────────────────────────────────────────────────
+
+  async function selectConversation(id) {
+    activeConvId = id;
+    setSidebarActive(id);
+    clearThread();
+    clearPanel();
+    setInputsEnabled(false);
+    const data = await get(`/conversations/${id}`);
+    for (const msg of data.messages) renderHistoryMessage(msg);
+    renderPanelQuestions(data.active_questions);
+    thread.scrollTop = thread.scrollHeight;
+    setInputsEnabled(true);
+  }
+
+  function renderHistoryMessage(msg) {
+    let content;
+    try { content = JSON.parse(msg.content_json); } catch { return; }
+
+    if (msg.kind === 'overview') {
+      appendOverview(content);
+    } else if (msg.kind === 'chat') {
+      appendBubble(msg.role, content.text || '');
+    } else if (msg.kind === 'answer') {
+      appendAnswerResult(content.correct, '');
+    } else if (msg.kind === 'suggestions') {
+      appendSuggestions(content.suggestions || []);
+    }
+    // question, review: live in the panel; skip in thread
+  }
+
+  // ── Thread ─────────────────────────────────────────────────────────────────
+
+  function clearThread(msg = 'Select or create a conversation') {
+    thread.innerHTML = '';
+    threadEmpty.textContent = msg;
+    thread.appendChild(threadEmpty);
+    threadEmpty.style.display = '';
+  }
+
+  function hideThreadEmpty() { threadEmpty.style.display = 'none'; }
+
+  function appendBubble(role, text) {
+    hideThreadEmpty();
+    const el = document.createElement('div');
+    el.className = `bubble ${role}`;
+    el.textContent = text;
+    thread.appendChild(el);
+    thread.scrollTop = thread.scrollHeight;
+    return el;
+  }
+
+  function appendOverview(data) {
+    hideThreadEmpty();
     const block = document.createElement('div');
     block.className = 'overview-block';
 
@@ -258,169 +499,244 @@
 
     const ul = document.createElement('ul');
     ul.className = 'overview-list';
-    for (const point of overview.points) {
+    for (const point of (data.points || [])) {
       const li = document.createElement('li');
-      const colonIdx = point.indexOf(': ');
-      if (colonIdx !== -1) {
+      const idx = point.indexOf(': ');
+      if (idx !== -1) {
         const label = document.createElement('span');
         label.className = 'overview-label';
-        label.textContent = point.slice(0, colonIdx) + ': ';
+        label.textContent = point.slice(0, idx) + ': ';
         li.appendChild(label);
-        li.appendChild(document.createTextNode(point.slice(colonIdx + 2)));
+        li.appendChild(document.createTextNode(point.slice(idx + 2)));
       } else {
         li.textContent = point;
       }
       ul.appendChild(li);
     }
     block.appendChild(ul);
-    chat.appendChild(block);
-    chat.scrollTop = chat.scrollHeight;
+    thread.appendChild(block);
+    thread.scrollTop = thread.scrollHeight;
   }
 
-  function showSpinner(container = null) {
+  function appendAnswerResult(isCorrect, rationale) {
+    hideThreadEmpty();
     const el = document.createElement('div');
-    el.className = 'spinner-bubble';
-    el.innerHTML = '<div class="spinner"></div>';
-    (container || currentContainer).appendChild(el);
-    chat.scrollTop = chat.scrollHeight;
-    return el;
+    el.className = `answer-result ${isCorrect ? 'correct' : 'wrong'}`;
+    const verdict = document.createElement('div');
+    verdict.className = 'answer-verdict';
+    verdict.textContent = isCorrect ? '✓ Correct!' : '✗ Incorrect';
+    el.appendChild(verdict);
+    if (rationale) {
+      const r = document.createElement('div');
+      r.textContent = rationale;
+      el.appendChild(r);
+    }
+    thread.appendChild(el);
+    thread.scrollTop = thread.scrollHeight;
   }
 
-  function addBubble(role, text) {
-    const el = document.createElement('div');
-    el.className = `bubble ${role}`;
-    el.textContent = text;
-    // user bubbles sit at the top chat level; everything else goes inside the session
-    (role === 'user' ? chat : currentContainer).appendChild(el);
-    chat.scrollTop = chat.scrollHeight;
-    return el;
-  }
-
-  function renderQuestion(q) {
+  function appendSuggestions(suggestions) {
+    if (!suggestions.length) return;
+    hideThreadEmpty();
     const block = document.createElement('div');
-    block.className = 'mcq-block' + (q.is_review ? ' review' : '');
+    block.className = 'suggestions-block';
+    const label = document.createElement('div');
+    label.className = 'suggestions-label';
+    label.textContent = 'Explore next';
+    block.appendChild(label);
+    for (const s of suggestions) {
+      const chip = document.createElement('button');
+      chip.className = 'suggestion-chip';
+      chip.textContent = s;
+      chip.onclick = () => { topicInput.value = s; topicInput.focus(); };
+      block.appendChild(chip);
+    }
+    thread.appendChild(block);
+    thread.scrollTop = thread.scrollHeight;
+  }
+
+  function appendSystemMsg(text) {
+    const el = document.createElement('div');
+    el.className = 'bubble system';
+    el.textContent = text;
+    thread.appendChild(el);
+    thread.scrollTop = thread.scrollHeight;
+  }
+
+  function showSpinner() {
+    const el = document.createElement('div');
+    el.className = 'spinner-row';
+    el.innerHTML = '<div class="spinner"></div>';
+    thread.appendChild(el);
+    thread.scrollTop = thread.scrollHeight;
+    return el;
+  }
+
+  // ── Panel ──────────────────────────────────────────────────────────────────
+
+  function clearPanel() {
+    activeQs.innerHTML = '';
+    activeQs.appendChild(panelEmpty);
+    panelEmpty.style.display = '';
+  }
+
+  function renderPanelQuestions(questions) {
+    for (const q of questions) appendPanelQuestion(q);
+  }
+
+  function appendPanelQuestion(q) {
+    panelEmpty.style.display = 'none';
+    const card = document.createElement('div');
+    card.className = 'q-card' + (q.is_review ? ' review' : '');
+    card.dataset.itemId = q.item_id;
 
     const qEl = document.createElement('div');
-    qEl.className = 'mcq-question';
+    qEl.className = 'q-question';
     qEl.textContent = q.question;
-    block.appendChild(qEl);
+    card.appendChild(qEl);
 
     const choicesEl = document.createElement('div');
-    choicesEl.className = 'mcq-choices';
-
-    const letters = ['A', 'B', 'C', 'D'];
-    q.choices.forEach((text, i) => {
+    choicesEl.className = 'q-choices';
+    ['A', 'B', 'C', 'D'].forEach((letter, i) => {
       const btn = document.createElement('button');
       btn.className = 'choice-btn';
-      btn.textContent = `${letters[i]}. ${text}`;
-      btn.onclick = () => submitAnswer(q.item_id, i, block);
+      btn.textContent = `${letter}. ${q.choices[i]}`;
+      btn.onclick = () => submitAnswer(q.item_id, i, card);
       choicesEl.appendChild(btn);
     });
-
-    block.appendChild(choicesEl);
-    currentContainer.appendChild(block);
-    chat.scrollTop = chat.scrollHeight;
-    return block;
+    card.appendChild(choicesEl);
+    activeQs.appendChild(card);
   }
 
-  function markChoices(block, choiceIndex, correctIndex) {
-    const btns = block.querySelectorAll('.choice-btn');
-    btns.forEach((btn, i) => {
-      btn.disabled = true;
-      if (i === choiceIndex && i === correctIndex) btn.classList.add('correct');
-      else if (i === choiceIndex)                   btn.classList.add('wrong');
-      else if (i === correctIndex)                  btn.classList.add('revealed');
-    });
+  function removeQuestionCard(itemId) {
+    const card = activeQs.querySelector(`[data-item-id="${itemId}"]`);
+    if (card) card.remove();
+    if (!activeQs.querySelector('.q-card')) panelEmpty.style.display = '';
   }
 
-  // ── API calls ────────────────────────────────────────────────────────────
+  // ── Enable/disable inputs ──────────────────────────────────────────────────
 
-  async function post(path, body = {}) {
-    const res = await fetch(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      let detail = `HTTP ${res.status}`;
-      try { detail = (await res.json()).detail ?? detail; } catch {}
-      throw new Error(detail);
-    }
-    return res.json();
+  function setInputsEnabled(on) {
+    const hasConv = activeConvId !== null;
+    topicInput.disabled = !on || !hasConv;
+    topicBtn.disabled   = !on || !hasConv;
+    chatInput.disabled  = !on || !hasConv;
+    chatBtn.disabled    = !on || !hasConv;
+    moreQBtn.disabled   = !on || !hasConv;
+    suggestBtn.disabled = !on || !hasConv;
   }
 
-  // ── flow ─────────────────────────────────────────────────────────────────
+  // ── Action flows ───────────────────────────────────────────────────────────
 
-  async function startTopic(topic) {
-    sendBtn.disabled = true;
-    input.disabled = true;
-    addBubble('user', topic);
-    const spinner = showSpinner(chat);
+  topicBtn.addEventListener('click', () => {
+    const topic = topicInput.value.trim();
+    if (topic && activeConvId) doStartTopic(topic);
+  });
+  topicInput.addEventListener('keydown', e => { if (e.key === 'Enter') topicBtn.click(); });
 
-    try {
-      const data = await post('/start-topic', { topic, quiz_count: 3 });
-      spinner.remove();
-      renderOverview(data.overview);
-      startSession(topic);
-      addSectionLabel('Questions');
-      for (const q of data.questions) {
-        renderQuestion(q);
-      }
-      input.value = '';
-      input.disabled = false;
-      sendBtn.disabled = false;
-    } catch (e) {
-      spinner.remove();
-      addBubble('system', `Error: ${e.message} — try a different topic.`);
-      input.disabled = false;
-      sendBtn.disabled = false;
-      input.focus();
-    }
-  }
+  chatBtn.addEventListener('click', () => {
+    const text = chatInput.value.trim();
+    if (text && activeConvId) doChat(text);
+  });
+  chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') chatBtn.click(); });
 
-  async function submitAnswer(itemId, choiceIndex, block) {
-    block.querySelectorAll('.choice-btn').forEach(b => b.disabled = true);
+  moreQBtn.addEventListener('click', () => { if (activeConvId) doMoreQuestions(); });
+  suggestBtn.addEventListener('click', () => { if (activeConvId) doSuggestTopics(); });
+
+  async function doStartTopic(topic) {
+    setInputsEnabled(false);
+    appendBubble('user', topic);
     const spinner = showSpinner();
-
     try {
-      const data = await post('/answer', { item_id: itemId, choice_index: choiceIndex });
+      const data = await post(`/conversations/${activeConvId}/start-topic`, { topic, quiz_count: 3 });
       spinner.remove();
-      markChoices(block, choiceIndex, data.correct_index);
-      const verdict = data.is_correct ? 'Correct!' : 'Not quite.';
-      addBubble('assistant', `${verdict}\n${data.rationale}`);
-      await advanceTurn();
-    } catch (e) {
-      spinner.remove();
-      addBubble('system', `Error: ${e.message}`);
-    }
-  }
-
-  async function advanceTurn() {
-    try {
-      const data = await post('/turn');
-      if (data.review) {
-        if (!reviewLabelShown) {
-          addSectionLabel('Review Questions');
-          reviewLabelShown = true;
-        }
-        renderQuestion(data.review);
+      appendOverview(data.overview);
+      clearPanel();
+      renderPanelQuestions(data.questions);
+      // Fetch suggestions that start_topic auto-generated
+      const conv = await get(`/conversations/${activeConvId}`);
+      const suggs = conv.messages.filter(m => m.kind === 'suggestions');
+      if (suggs.length) {
+        try { appendSuggestions(JSON.parse(suggs[suggs.length - 1].content_json).suggestions || []); } catch {}
       }
+      updateSidebarTitle(activeConvId, conv.title);
+      topicInput.value = '';
     } catch (e) {
-      addBubble('system', `Error: ${e.message}`);
+      spinner.remove();
+      appendSystemMsg(`Error: ${e.message}`);
+    }
+    setInputsEnabled(true);
+  }
+
+  async function doChat(text) {
+    setInputsEnabled(false);
+    chatInput.value = '';
+    appendBubble('user', text);
+    const spinner = showSpinner();
+    try {
+      const data = await post(`/conversations/${activeConvId}/chat`, { text });
+      spinner.remove();
+      appendBubble('assistant', data.reply);
+      if (data.review) appendPanelQuestion(data.review);
+    } catch (e) {
+      spinner.remove();
+      appendSystemMsg(`Error: ${e.message}`);
+    }
+    setInputsEnabled(true);
+    chatInput.focus();
+  }
+
+  async function submitAnswer(itemId, choiceIndex, card) {
+    card.querySelectorAll('.choice-btn').forEach(b => b.disabled = true);
+    try {
+      const data = await post(`/conversations/${activeConvId}/answer`, {
+        item_id: itemId, choice_index: choiceIndex,
+      });
+      // Flash correct/wrong on buttons
+      const btns = card.querySelectorAll('.choice-btn');
+      btns.forEach((btn, i) => {
+        if (i === choiceIndex && i === data.correct_index) btn.classList.add('correct');
+        else if (i === choiceIndex)         btn.classList.add('wrong');
+        else if (i === data.correct_index)  btn.classList.add('revealed');
+      });
+      // After a short pause: remove card, show result in thread, advance turn
+      setTimeout(async () => {
+        removeQuestionCard(itemId);
+        appendAnswerResult(data.is_correct, data.rationale);
+        const turn = await post(`/conversations/${activeConvId}/turn`).catch(() => null);
+        if (turn?.review) appendPanelQuestion(turn.review);
+      }, 700);
+    } catch (e) {
+      appendSystemMsg(`Error: ${e.message}`);
+      card.querySelectorAll('.choice-btn').forEach(b => b.disabled = false);
     }
   }
 
-  // ── event wiring ──────────────────────────────────────────────────────────
+  async function doMoreQuestions() {
+    setInputsEnabled(false);
+    try {
+      const data = await post(`/conversations/${activeConvId}/actions`, { action: 'more_questions', count: 3 });
+      renderPanelQuestions(data.questions);
+    } catch (e) {
+      appendSystemMsg(`Error: ${e.message}`);
+    }
+    setInputsEnabled(true);
+  }
 
-  sendBtn.addEventListener('click', () => {
-    const topic = input.value.trim();
-    if (!topic) return;
-    startTopic(topic);
-  });
+  async function doSuggestTopics() {
+    suggestBtn.disabled = true;
+    try {
+      const data = await post(`/conversations/${activeConvId}/actions`, { action: 'suggest_topics', count: 4 });
+      appendSuggestions(data.suggestions);
+    } catch (e) {
+      appendSystemMsg(`Error: ${e.message}`);
+    }
+    suggestBtn.disabled = !activeConvId;
+  }
 
-  input.addEventListener('keydown', e => {
-    if (e.key === 'Enter') sendBtn.click();
-  });
+  // ── Init ───────────────────────────────────────────────────────────────────
+
+  loadSidebar();
 </script>
 </body>
 </html>
