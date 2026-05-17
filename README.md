@@ -88,6 +88,13 @@ uv run scripts/run_core_loop.py "photosynthesis" --count 5 --review-every 2 --db
 uv run python -m unittest discover -s tests -v
 ```
 
+The real-model integration test is skipped by default because it loads Gemma and
+requires the target GPU. Run it explicitly with:
+
+```bash
+RUN_REAL_MODEL_TEST=1 uv run python -m unittest tests.test_real_model_integration -v
+```
+
 ---
 
 ## Debug scripts

@@ -114,9 +114,10 @@ UI completion:
 - [x] Questions panel: inline answer feedback (correct/wrong highlights + rationale), scrollable history, full state restored on reload.
 - [x] Review questions batch after all current cards answered (not mid-round).
 - [x] Cross-topic review labelling: review cards include a source-topic tag using the quiz item's originating topic.
+- [x] Optional real-model integration test added behind `RUN_REAL_MODEL_TEST=1`.
 
 **Remaining before M3 is done:**
-- [ ] **Real model integration test**: run the full stack with `GemmaQuizGenerator` loaded (GPU required) to verify end-to-end latency, JSON parsing robustness, and review scheduling under real inference times.
+- [ ] **Real model integration run**: execute the optional `RUN_REAL_MODEL_TEST=1` test on the target GPU and record latency/robustness findings.
 
 **Done when:** a non-developer can open the app, create multiple conversations, switch between them, drill from a topic into a sub-topic inside the same conversation, reload the page, and see the transcript plus per-conversation review questions preserved.
 
