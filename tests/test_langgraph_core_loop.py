@@ -49,6 +49,25 @@ class SequenceGenerator:
         return self.mcqs[start : start + count]
 
 
+class DuplicateThenReplacementGenerator:
+    def __init__(self):
+        self.quiz_calls = 0
+
+    def generate_overview(self, topic):
+        return Overview(points=[f"Overview for {topic}"])
+
+    def generate_quiz(self, topic, overview, count=3):
+        self.quiz_calls += 1
+        if self.quiz_calls == 1:
+            return [
+                MCQ("What is the main role of cells?", ["A", "B", "C", "D"], 0, "A"),
+                MCQ("What is the main role of cells?", ["A", "B", "C", "D"], 1, "B"),
+            ][:count]
+        return [
+            MCQ("Which organelle contains genetic material?", ["A", "B", "C", "D"], 2, "C")
+        ]
+
+
 class QuestionVerifier:
     def __init__(self, accepted_question):
         self.accepted_question = accepted_question
@@ -129,8 +148,8 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
                     review_every=2,
                     log_path=log_path,
                 )
-
-                overview, questions = loop.start_topic("cells", quiz_count=1)
+                conv_id = store.create_conversation()
+                overview, questions = loop.start_topic(conv_id, "cells", quiz_count=1)
 
                 self.assertEqual(overview.points, ["Overview for cells"])
                 self.assertEqual(len(questions), 1)
@@ -161,7 +180,8 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
                 except TypeError as exc:
                     self.fail(f"CoreLoop does not accept verifier dependency: {exc}")
 
-                _, questions = loop.start_topic("cells", quiz_count=1)
+                conv_id = store.create_conversation()
+                _, questions = loop.start_topic(conv_id, "cells", quiz_count=1)
 
                 self.assertEqual([question.mcq.question for question in questions], ["Good question?"])
                 self.assertEqual(generator.quiz_calls, 2)
@@ -188,11 +208,34 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
                 except TypeError as exc:
                     self.fail(f"CoreLoop does not accept verifier dependency: {exc}")
 
-                _, questions = loop.start_topic("cells", quiz_count=1)
+                conv_id = store.create_conversation()
+                _, questions = loop.start_topic(conv_id, "cells", quiz_count=1)
 
                 self.assertEqual(questions, [])
                 self.assertEqual(generator.quiz_calls, 2)
                 self.assertEqual(verifier.calls, 2)
+            finally:
+                store.close()
+
+    def test_verify_retries_near_duplicate_questions(self):
+        generator = DuplicateThenReplacementGenerator()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                loop = CoreLoop(store, generator)
+                conv_id = store.create_conversation()
+
+                _, questions = loop.start_topic(conv_id, "cells", quiz_count=2)
+
+                self.assertEqual(
+                    [question.mcq.question for question in questions],
+                    [
+                        "What is the main role of cells?",
+                        "Which organelle contains genetic material?",
+                    ],
+                )
+                self.assertEqual(generator.quiz_calls, 2)
             finally:
                 store.close()
 
@@ -205,11 +248,12 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
                 except TypeError as exc:
                     self.fail(f"CoreLoop does not accept safety checker dependency: {exc}")
 
-                overview, questions = loop.start_topic("unsafe topic", quiz_count=1)
+                conv_id = store.create_conversation()
+                overview, questions = loop.start_topic(conv_id, "unsafe topic", quiz_count=1)
 
                 self.assertIn("cannot help", overview.points[0].lower())
                 self.assertEqual(questions, [])
-                self.assertIsNone(store.due_review_item())
+                self.assertIsNone(store.due_review_item(conv_id))
             finally:
                 store.close()
 
@@ -224,10 +268,11 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
                     review_every=1,
                     log_path=log_path,
                 )
-                _, questions = loop.start_topic("cells", quiz_count=1)
-                loop.answer(questions[0], 1)
+                conv_id = store.create_conversation()
+                _, questions = loop.start_topic(conv_id, "cells", quiz_count=1)
+                loop.answer(conv_id, questions[0], 1)
 
-                review = loop.next_turn()
+                review = loop.next_turn(conv_id)
 
                 self.assertIsNotNone(review)
                 self.assertTrue(review.is_review)
@@ -252,9 +297,10 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
                     review_every=1,
                     log_path=log_path,
                 )
-                _, questions = loop.start_topic("cells", quiz_count=1)
+                conv_id = store.create_conversation()
+                _, questions = loop.start_topic(conv_id, "cells", quiz_count=1)
 
-                result = loop.answer(questions[0], 1)
+                result = loop.answer(conv_id, questions[0], 1)
 
                 self.assertFalse(result[0])
                 entries = read_log_entries(log_path)

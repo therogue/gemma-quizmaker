@@ -37,19 +37,23 @@ def _print_question(asked: AskedQuestion) -> None:
         print(f"  {index}. {choice}")
 
 
-def _read_choice() -> int:
+def _read_choices() -> list[int]:
     while True:
-        raw = input("Your answer (1-4): ").strip()
-        if raw in {"1", "2", "3", "4"}:
-            return int(raw) - 1
-        print("Enter 1, 2, 3, or 4.")
+        raw = input("Your answer (1-4, comma-separated if multiple): ").strip()
+        parts = [part.strip() for part in raw.split(",") if part.strip()]
+        if parts and all(part in {"1", "2", "3", "4"} for part in parts):
+            choices = sorted({int(part) - 1 for part in parts})
+            if choices:
+                return choices
+        print("Enter one or more values from 1, 2, 3, or 4.")
 
 
-def _ask_and_grade(loop: CoreLoop, asked: AskedQuestion) -> None:
+def _ask_and_grade(loop: CoreLoop, conversation_id: int, asked: AskedQuestion) -> None:
     _print_question(asked)
-    choice = _read_choice()
-    is_correct, rationale = loop.answer(asked, choice)
-    print("Correct." if is_correct else f"Not quite. Correct answer: {asked.mcq.answer_index + 1}.")
+    choices = _read_choices()
+    is_correct, rationale = loop.answer(conversation_id, asked, choices)
+    correct = ", ".join(str(index + 1) for index in asked.mcq.answer_indices)
+    print("Correct." if is_correct else f"Not quite. Correct answer(s): {correct}.")
     print(rationale)
 
 
@@ -69,28 +73,29 @@ def main() -> None:
     store = QuizStore(Path(args.db))
     try:
         loop = CoreLoop(store, GemmaQuizGenerator(model, processor), review_every=args.review_every)
-        overview, questions = loop.start_topic(args.topic, quiz_count=args.count)
+        conversation_id = store.create_conversation()
+        overview, questions = loop.start_topic(conversation_id, args.topic, quiz_count=args.count)
 
         print("\n[Overview]")
         for point in overview.points:
             print(f"  - {point}")
 
         for asked in questions:
-            _ask_and_grade(loop, asked)
-            review = loop.next_turn()
+            _ask_and_grade(loop, conversation_id, asked)
+            review = loop.next_turn(conversation_id)
             if review is not None:
-                _ask_and_grade(loop, review)
+                _ask_and_grade(loop, conversation_id, review)
 
         print("\nContinue the session. Press Enter for a turn, or type q to quit.")
         while True:
             raw = input("> ").strip().lower()
             if raw in {"q", "quit", "exit"}:
                 break
-            review = loop.next_turn()
+            review = loop.next_turn(conversation_id)
             if review is None:
                 print("No review item due this turn.")
             else:
-                _ask_and_grade(loop, review)
+                _ask_and_grade(loop, conversation_id, review)
     finally:
         store.close()
 

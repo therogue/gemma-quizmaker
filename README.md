@@ -2,7 +2,9 @@
 
 Offline, single-user learning agent built on Gemma 4. Explains topics, generates MCQ quizzes, and uses spaced repetition to reinforce retention.
 
-See [`docs/CONCEPT.md`](docs/CONCEPT.md) for the full concept and [`docs/ROADMAP.md`](docs/ROADMAP.md) for the milestone plan.
+See [`docs/CONCEPT.md`](docs/CONCEPT.md) for the full concept,
+[`docs/ROADMAP.md`](docs/ROADMAP.md) for the milestone plan, and
+[`docs/M3_API_CONTRACT.md`](docs/M3_API_CONTRACT.md) for the current API contract.
 
 ---
 
@@ -38,7 +40,25 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True <cmd>
 
 ---
 
-## UI + API server
+## Stub server (no GPU required)
+
+For UI development and testing without a GPU, use the stub server. It runs the real storage and routing code but replaces Gemma with a fast fake generator:
+
+```bash
+rm -f data/stub_quizmaker.sqlite3   # clear state if needed
+uv run uvicorn scripts.stub_server:app --reload --port 8001
+```
+
+Once running:
+
+- UI: `http://localhost:8001`
+- API docs: `http://localhost:8001/docs`
+
+Hard-refresh the browser (`Ctrl+Shift+R`) if the UI looks like an older version.
+
+---
+
+## UI + API server (GPU required)
 
 ```bash
 uv run uvicorn app.main:app --port 8000
@@ -66,6 +86,13 @@ uv run scripts/run_core_loop.py "photosynthesis" --count 5 --review-every 2 --db
 
 ```bash
 uv run python -m unittest discover -s tests -v
+```
+
+The real-model integration test is skipped by default because it loads Gemma and
+requires the target GPU. Run it explicitly with:
+
+```bash
+RUN_REAL_MODEL_TEST=1 uv run python -m unittest tests.test_real_model_integration -v
 ```
 
 ---

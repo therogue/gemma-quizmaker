@@ -41,7 +41,7 @@ MAX_NEW_TOKENS = 512
 class MCQ(BaseModel):
     question: str
     choices: list[str]
-    answer_index: int
+    answer_indices: list[int]
     rationale: str
 
     @field_validator("choices")
@@ -51,11 +51,17 @@ class MCQ(BaseModel):
             raise ValueError(f"expected 4 choices, got {len(v)}")
         return v
 
-    @field_validator("answer_index")
+    @field_validator("answer_indices")
     @classmethod
-    def must_be_valid_index(cls, v: int) -> int:
-        if not 0 <= v <= 3:
-            raise ValueError(f"answer_index must be 0–3, got {v}")
+    def must_be_valid_indices(cls, v: list[int]) -> list[int]:
+        if not v:
+            raise ValueError("answer_indices must not be empty")
+        if len(v) >= 4:
+            raise ValueError("answer_indices must leave at least one incorrect choice")
+        if len(set(v)) != len(v):
+            raise ValueError("answer_indices must not contain duplicates")
+        if any(not 0 <= index <= 3 for index in v):
+            raise ValueError(f"answer_indices must contain only values 0–3, got {v}")
         return v
 
 
@@ -81,10 +87,12 @@ def _build_messages(topic: str) -> list[dict]:
             "role": "user",
             "content": (
                 f"Generate one multiple-choice question about: {topic}\n\n"
+                "The question may have one or more correct choices, but at least one choice "
+                "must be incorrect.\n\n"
                 "Return a JSON object with exactly these fields:\n"
                 '  "question": string\n'
                 '  "choices": array of exactly 4 strings\n'
-                '  "answer_index": integer 0–3 (index of the correct choice)\n'
+                '  "answer_indices": non-empty array of integers 0–3 (all correct choices)\n'
                 '  "rationale": string explaining why the answer is correct'
             ),
         },
