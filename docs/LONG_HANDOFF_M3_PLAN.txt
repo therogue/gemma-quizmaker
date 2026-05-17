@@ -1,0 +1,210 @@
+gemma-quizmaker M3 handoff for Long
+===================================
+
+Context
+-------
+We discussed the next major app iteration: moving from the current singleton
+session model to a multi-conversation MVP with persistent transcripts, free-form
+chat, and simple user steering.
+
+The important product decision: a conversation is a durable study thread, not a
+single-topic container. A user can start with one topic and later focus on a
+sub-topic inside the same conversation. This should not automatically create a
+new conversation.
+
+Current code shape
+------------------
+The app currently has:
+
+- A singleton `sessions` table with only row `id = 1`.
+- `quiz_items` without `conversation_id`.
+- `history`, which is currently an event log, not a full transcript.
+- `CoreLoop` caches `topic`, `overview`, and `turn_count` in memory.
+- Existing FastAPI endpoints:
+  - `POST /start-topic`
+  - `POST /answer`
+  - `POST /turn`
+
+Current `history` examples:
+
+- Assistant overview event stored as JSON.
+- User answer event stored as a string like `item=1 choice=2 correct=False`.
+- Assistant review event stored as a string like `item=1`.
+
+Decision: rename this concept to `logs`, and add a separate `messages` table for
+the real user-visible transcript.
+
+Layer 1: Schema and storage
+---------------------------
+Implement these tables:
+
+- `conversations`
+- `quiz_items`
+- `messages`
+- `logs`
+
+Suggested schema:
+
+```sql
+CREATE TABLE conversations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL DEFAULT 'New conversation',
+    topic TEXT NOT NULL DEFAULT '',
+    overview_json TEXT NOT NULL DEFAULT '',
+    turn_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE quiz_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id),
+    topic TEXT NOT NULL,
+    question TEXT NOT NULL,
+    choices_json TEXT NOT NULL,
+    answer_index INTEGER NOT NULL,
+    rationale TEXT NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 0,
+    cooldown INTEGER NOT NULL DEFAULT 0,
+    asked_count INTEGER NOT NULL DEFAULT 0,
+    correct_count INTEGER NOT NULL DEFAULT 0,
+    wrong_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id),
+    role TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    content_json TEXT NOT NULL,
+    quiz_item_id INTEGER REFERENCES quiz_items(id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id INTEGER REFERENCES conversations(id),
+    level TEXT NOT NULL DEFAULT 'info',
+    event TEXT NOT NULL,
+    content_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+Rules:
+
+- `messages` is the canonical user-visible transcript.
+- `logs` is for internal events, debugging, and audit trail.
+- `quiz_items.topic` stores the exact topic/sub-topic that generated the item.
+- Review queries, cooldown updates, answer recording, and quiz item loading must
+  be scoped by `conversation_id`.
+- On old schema detection, delete/recreate the local SQLite DB. No migration is
+  needed for stale PoC data.
+
+Layer 2: Conversation-aware backend
+-----------------------------------
+Implement:
+
+- `POST /conversations`
+- `GET /conversations`
+- `GET /conversations/{id}`
+
+No delete endpoint for MVP.
+
+Move existing operations under nested conversation routes:
+
+- `POST /conversations/{id}/start-topic`
+- `POST /conversations/{id}/answer`
+- `POST /conversations/{id}/turn`
+
+Behavior decisions:
+
+- `POST /conversations` creates an empty conversation.
+- Do not auto-create a conversation from `/start-topic`.
+- `CoreLoop` should be stateless with respect to the active conversation.
+  It should load/update conversation state per request instead of caching one
+  global `topic`, `overview`, and `turn_count`.
+- `/start-topic` inside an existing conversation updates the current focus
+  topic/overview, preserves old transcript, and preserves old quiz items.
+- Count every user-visible interaction as a turn, including:
+  - Initial topic creation.
+  - Free-form chat messages.
+  - Quiz answers.
+  - Manual turn advancement.
+- `/answer` must verify that the quiz item belongs to the requested
+  conversation and reject mismatches.
+- `GET /conversations/{id}` should return:
+  - Conversation metadata.
+  - Messages.
+  - Current overview.
+  - Active unanswered questions.
+
+Layer 3: Free-form chat
+-----------------------
+Add:
+
+- `POST /conversations/{id}/chat`
+
+Behavior decisions:
+
+- `/chat` is plain chat only for MVP.
+- It should not secretly generate quizzes.
+- Store both user message and assistant reply in `messages`.
+- Chat counts as a turn and may trigger per-conversation review scheduling.
+- Pass Gemma:
+  - Current focus topic.
+  - Current overview.
+  - Last 10 messages only, to keep latency down.
+- Keep `messages` user-visible only:
+  - `user`
+  - `assistant`
+- Put system/tool/debug details in `logs`.
+
+Layer 4: User steering
+----------------------
+Add one generic action endpoint:
+
+- `POST /conversations/{id}/actions`
+
+Implement only this MVP action first:
+
+```json
+{
+  "action": "more_questions",
+  "count": 3
+}
+```
+
+Behavior decisions:
+
+- `more_questions` uses the conversation's current focus topic and overview.
+- Store generated questions as both `quiz_items` and transcript `messages`.
+- Defer `regenerate_quiz` until there is a clear UI need.
+- Do not route explicit UI actions through `/chat`.
+- UI buttons should call `/actions`; normal user text should call `/chat`.
+
+Recommended build order
+-----------------------
+1. Layer 1 schema/store refactor.
+2. Layer 2 route/core loop refactor.
+3. Update tests for multi-conversation isolation.
+4. Add transcript loading via `messages`.
+5. Add `/chat`.
+6. Add `/actions` with `more_questions`.
+7. Update frontend to use conversation IDs and load transcripts.
+
+Roadmap update
+--------------
+`docs/ROADMAP.md` has already been updated with the plan above.
+
+Deferred beyond MVP
+-------------------
+- Cross-conversation review pool. For MVP, reviews stay scoped to the active
+  conversation.
+- `regenerate_quiz`.
+- Topic segment table. If one conversation covers several related focuses over
+  time, a later version can persist each focus/overview as its own segment
+  instead of only storing current focus on `conversations`.
+- Delete/archive/cleanup flow for stale conversations.

@@ -3,7 +3,7 @@
 Time is short. This roadmap is ruthless about scope. Anything not on the critical path for the demo is deferred.
 
 ## Guiding cuts
-- **Single conversation, single topic** at PoC. Multi-convo is MVP, not PoC.
+- **Single conversation** at PoC. Multi-convo is MVP, not PoC. A conversation is a durable learning thread and may move across related topics or sub-topics.
 - **Text-only**. No image/PDF upload until after MVP.
 - **No web search, no graph/equation tool, no file read** until after MVP. They conflict with "offline" and aren't needed to prove the core loop.
 - **No follow-up recommendations** until after MVP.
@@ -72,16 +72,47 @@ UI surfaces:
 **Done when:** running the demo on a list of 20 varied topics produces zero malformed quizzes and zero unsafe outputs, and the UI faithfully reflects verify/safety outcomes.
 
 ## M3 — UI completion (MVP)
-**Goal:** finish the UI on top of the M2 graph. Everything user-visible lands here.
+**Goal:** harden the app into a multi-conversation learning tool on top of the M2 graph. A conversation is a durable study thread; starting a new topic or sub-topic inside a conversation updates the current focus without creating a new conversation.
 
-- [ ] Data model finalized: `Conversation`, `Message`, `QuizItem`, `ReviewState`. SQLite (already on disk from M2; this milestone hardens the schema).
+Layer 1 — schema + storage:
+- [ ] Replace singleton `sessions` with `conversations`.
+- [ ] Add `conversation_id` to `quiz_items`; quiz items remain tagged with the topic/sub-topic that generated them.
+- [ ] Rename the current `history` concept to `logs` for internal events/debugging.
+- [ ] Add `messages` as the canonical user-visible transcript.
+- [ ] Scope review queries, cooldown updates, answer recording, and quiz item loading by `conversation_id`.
+- [ ] On old schema detection, delete/recreate the local SQLite DB rather than migrating stale PoC data.
+
+Layer 2 — conversation-aware backend:
+- [ ] Make `CoreLoop` stateless with respect to the active conversation; load/update conversation state per request.
+- [ ] Add `POST /conversations`, `GET /conversations`, and `GET /conversations/{id}`. No delete endpoint for MVP.
+- [ ] Move existing operations under nested routes: `POST /conversations/{id}/start-topic`, `POST /conversations/{id}/answer`, and `POST /conversations/{id}/turn`.
+- [ ] Count all user-visible interactions as turns, including initial topic creation, chat messages, answers, and manual turn advancement.
+- [ ] Make `/start-topic` update the conversation's current focus topic/overview while preserving prior transcript and quiz items.
+- [ ] Make `/answer` reject quiz items that do not belong to the requested conversation.
+- [ ] Make `GET /conversations/{id}` return conversation metadata, messages, current overview, and active unanswered questions.
+
+Layer 3 — free-form chat:
+- [ ] Add `POST /conversations/{id}/chat` for plain chat replies. It should not secretly generate quizzes in MVP.
+- [ ] Store both user messages and assistant replies in `messages`.
+- [ ] Chat counts as a turn and may trigger per-conversation review scheduling.
+- [ ] Pass Gemma the current focus topic, current overview, and the last 10 messages to keep latency under control.
+- [ ] Keep `messages` user-visible only (`user`, `assistant`); put system/tool/debug records in `logs`.
+
+Layer 4 — user steering:
+- [ ] Add one generic endpoint: `POST /conversations/{id}/actions`.
+- [ ] Implement only the MVP action first: `{ "action": "more_questions", "count": 3 }`.
+- [ ] Generate more questions from the conversation's current focus topic and overview.
+- [ ] Store generated questions as both `quiz_items` and transcript `messages`.
+- [ ] Defer `regenerate_quiz` until there is a clear UI need.
+- [ ] Keep explicit UI actions on `/actions`; keep normal user text on `/chat`.
+
+UI completion:
 - [ ] Conversation picker (sidebar list, "new conversation" button).
-- [ ] Conversation switcher preserves per-conversation state without losing in-flight quizzes.
-- [ ] Cross-conversation review pool: incorrect items from any conversation can re-surface in any conversation; UI shows which conversation a re-surfaced item originated from.
+- [ ] Conversation switcher preserves per-conversation messages, current focus, quiz items, and review state.
 - [ ] Empty-state, loading, and error states for the chat pane and the picker.
 - [ ] Visual polish pass: keyboard nav for MCQ choices, responsive layout, no console errors.
 
-**Done when:** a non-developer can open the app, run two topics, switch between them, and see review questions interleave — including review items that crossed conversations.
+**Done when:** a non-developer can open the app, create multiple conversations, switch between them, drill from a topic into a sub-topic inside the same conversation, reload the page, and see the transcript plus per-conversation review questions preserved.
 
 ## M4 — Submission polish
 - [ ] README with run instructions (uv-only).
@@ -97,11 +128,13 @@ UI surfaces:
 
 - **Bullet-targeted MCQ generation**: instead of generating questions from the topic string, assign each MCQ to a specific bullet point from the overview. Eliminates duplicate/similar questions and ensures full coverage of the overview. Partially addressed by the structured overview format; the next step is passing the target bullet directly to the quiz-gen prompt.
 - **Bullets as sub-topics**: use each overview bullet point as the seed topic for the *next round* of MCQs. Lets the user drill progressively deeper on whichever fact they got wrong.
+- **Topic segments inside a conversation**: if one conversation covers several related focuses over time, persist each focus/overview as a segment rather than only storing the current focus on `conversations`.
 - **Stop button for generation**: a cancel button that aborts the in-flight request while Gemma is generating. Frontend-side abort is trivial via `AbortController`; true server-side cancellation requires streaming responses (SSE or chunked transfer) so the server knows when the client disconnects and can interrupt the model mid-generation.
 
 ## Deferred to post-submission (do not start until M4 ships)
 - Multimodal materials upload (image/PDF → overview/quiz).
 - Tooling: web search (cached corpus), file read, graph/equation generator.
+- Cross-conversation review pool: incorrect items from any conversation can re-surface in another conversation; until then, review stays scoped to the active conversation.
 - Spaced-repetition algorithm upgrade (SM-2 / FSRS) — until then, simple priority queue with cooldown counter is enough.
 - Follow-up topic recommendations.
 - Adaptation tuning beyond "wrong-answer priority."
@@ -121,7 +154,7 @@ These are known output-quality failure modes observed during M1 development. Non
 
 **Lifecycle and data hygiene**
 - **No way to discard bad generated content**: if a question or overview is clearly wrong, there is no admin tool to delete or flag it. Needed before multi-user or persistent-session use.
-- **SQLite accumulates stale sessions**: switching topics leaves orphaned quiz items with no cleanup path. A `reset` or `clear-session` endpoint/CLI command is needed.
+- **SQLite accumulates stale conversations**: old conversations and quiz items have no cleanup path. A clear/archive flow may be needed after MVP.
 - **Overview/question versioning**: re-generating a topic overwrites the old session with no history. If the new generation is worse, the old one is lost.
 
 ## Risks (and the cheap mitigation)
