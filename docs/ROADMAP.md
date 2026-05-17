@@ -75,42 +75,48 @@ UI surfaces:
 **Goal:** harden the app into a multi-conversation learning tool on top of the M2 graph. A conversation is a durable study thread; starting a new topic or sub-topic inside a conversation updates the current focus without creating a new conversation.
 
 Layer 1 — schema + storage:
-- [ ] Replace singleton `sessions` with `conversations`.
-- [ ] Add `conversation_id` to `quiz_items`; quiz items remain tagged with the topic/sub-topic that generated them.
-- [ ] Rename the current `history` concept to `logs` for internal events/debugging.
-- [ ] Add `messages` as the canonical user-visible transcript.
-- [ ] Scope review queries, cooldown updates, answer recording, and quiz item loading by `conversation_id`.
-- [ ] On old schema detection, delete/recreate the local SQLite DB rather than migrating stale PoC data.
+- [x] Replace singleton `sessions` with `conversations`.
+- [x] Add `conversation_id` to `quiz_items`; quiz items remain tagged with the topic/sub-topic that generated them.
+- [x] Rename the current `history` concept to `logs` for internal events/debugging.
+- [x] Add `messages` as the canonical user-visible transcript.
+- [x] Scope review queries, cooldown updates, answer recording, and quiz item loading by `conversation_id`.
+- [x] On old schema detection, delete/recreate the local SQLite DB rather than migrating stale PoC data.
 
 Layer 2 — conversation-aware backend:
-- [ ] Make `CoreLoop` stateless with respect to the active conversation; load/update conversation state per request.
-- [ ] Add `POST /conversations`, `GET /conversations`, and `GET /conversations/{id}`. No delete endpoint for MVP.
-- [ ] Move existing operations under nested routes: `POST /conversations/{id}/start-topic`, `POST /conversations/{id}/answer`, and `POST /conversations/{id}/turn`.
-- [ ] Count all user-visible interactions as turns, including initial topic creation, chat messages, answers, and manual turn advancement.
-- [ ] Make `/start-topic` update the conversation's current focus topic/overview while preserving prior transcript and quiz items.
-- [ ] Make `/answer` reject quiz items that do not belong to the requested conversation.
-- [ ] Make `GET /conversations/{id}` return conversation metadata, messages, current overview, and active unanswered questions.
+- [x] Make `CoreLoop` stateless with respect to the active conversation; load/update conversation state per request.
+- [x] Add `POST /conversations`, `GET /conversations`, and `GET /conversations/{id}`. No delete endpoint for MVP.
+- [x] Move existing operations under nested routes: `POST /conversations/{id}/start-topic`, `POST /conversations/{id}/answer`, and `POST /conversations/{id}/turn`.
+- [x] Count all user-visible interactions as turns, including initial topic creation, chat messages, answers, and manual turn advancement.
+- [x] Make `/start-topic` update the conversation's current focus topic/overview while preserving prior transcript and quiz items.
+- [x] Make `/answer` reject quiz items that do not belong to the requested conversation.
+- [x] Make `GET /conversations/{id}` return conversation metadata, messages, current overview, and active unanswered questions.
 
 Layer 3 — free-form chat:
-- [ ] Add `POST /conversations/{id}/chat` for plain chat replies. It should not secretly generate quizzes in MVP.
-- [ ] Store both user messages and assistant replies in `messages`.
-- [ ] Chat counts as a turn and may trigger per-conversation review scheduling.
-- [ ] Pass Gemma the current focus topic, current overview, and the last 10 messages to keep latency under control.
-- [ ] Keep `messages` user-visible only (`user`, `assistant`); put system/tool/debug records in `logs`.
+- [x] Add `POST /conversations/{id}/chat` for plain chat replies. It should not secretly generate quizzes in MVP.
+- [x] Store both user messages and assistant replies in `messages`.
+- [x] Chat counts as a turn and may trigger per-conversation review scheduling.
+- [x] Pass Gemma the current focus topic, current overview, and the last 10 messages to keep latency under control.
+- [x] Keep `messages` user-visible only (`user`, `assistant`); put system/tool/debug records in `logs`.
 
 Layer 4 — user steering:
-- [ ] Add one generic endpoint: `POST /conversations/{id}/actions`.
-- [ ] Implement only the MVP action first: `{ "action": "more_questions", "count": 3 }`.
-- [ ] Generate more questions from the conversation's current focus topic and overview.
-- [ ] Store generated questions as both `quiz_items` and transcript `messages`.
-- [ ] Defer `regenerate_quiz` until there is a clear UI need.
-- [ ] Keep explicit UI actions on `/actions`; keep normal user text on `/chat`.
+- [x] Add one generic endpoint: `POST /conversations/{id}/actions`.
+- [x] Implement `{ "action": "more_questions", "count": 3 }`.
+- [x] Implement `{ "action": "suggest_topics", "count": 4 }` (added beyond original plan; suggestions appear on-demand via button, chips pre-fill the topic input).
+- [x] Generate more questions from the conversation's current focus topic and overview.
+- [x] Store generated questions as both `quiz_items` and transcript `messages`.
+- [x] Keep explicit UI actions on `/actions`; keep normal user text on `/chat`.
 
 UI completion:
-- [ ] Conversation picker (sidebar list, "new conversation" button).
-- [ ] Conversation switcher preserves per-conversation messages, current focus, quiz items, and review state.
-- [ ] Empty-state, loading, and error states for the chat pane and the picker.
-- [ ] Visual polish pass: keyboard nav for MCQ choices, responsive layout, no console errors.
+- [x] Conversation picker (sidebar list, "new conversation" button).
+- [x] Conversation switcher preserves per-conversation messages, current focus, quiz items, and review state.
+- [x] Empty-state, loading, and error states for the chat pane.
+- [x] 3-panel layout: sidebar (conversations), center (chat thread + dual topic/chat inputs), right (questions panel grouped by topic with collapsible sections).
+- [x] Questions panel: inline answer feedback (correct/wrong highlights + rationale), scrollable history, full state restored on reload.
+- [x] Review questions batch after all current cards answered (not mid-round).
+
+**Remaining before M3 is done:**
+- [ ] **Cross-topic review labelling** (open design decision): when a review question from a previous topic surfaces in the current topic's section, it should show which topic it came from. Two options: (A) add a small source-topic tag on the review card — requires passing topic through `QuestionOut`; (B) give reviews a dedicated fixed panel section separate from topic groups. Option A is lighter. Decision pending.
+- [ ] **Real model integration test**: run the full stack with `GemmaQuizGenerator` loaded (GPU required) to verify end-to-end latency, JSON parsing robustness, and review scheduling under real inference times.
 
 **Done when:** a non-developer can open the app, create multiple conversations, switch between them, drill from a topic into a sub-topic inside the same conversation, reload the page, and see the transcript plus per-conversation review questions preserved.
 
@@ -138,6 +144,16 @@ UI completion:
 - Spaced-repetition algorithm upgrade (SM-2 / FSRS) — until then, simple priority queue with cooldown counter is enough.
 - Follow-up topic recommendations.
 - Adaptation tuning beyond "wrong-answer priority."
+
+## Inference performance (not yet addressed)
+
+These were identified during development but not yet implemented. Should be tackled before or during real-model testing.
+
+**Batch MCQ generation**: `GemmaQuizGenerator.generate_quiz` currently calls `run_inference` once per question (3 separate GPU forward passes for a 3-question batch). Generating all N questions in a single prompt — with a JSON array response schema — would cut inference calls from N to 1 and likely halve wall-clock latency for topic start. Trade-off: harder to retry individual bad questions; the verify node would need to iterate the array.
+
+**Reduce `MAX_NEW_TOKENS`**: currently set to 768 for all inference paths. A single MCQ JSON object is roughly 150–200 tokens; an overview is similar. Lowering to 300–400 for MCQ and overview generation, and to 512 for chat replies, would reduce generation time without truncating valid outputs. Profile actual token counts on a sample of real outputs before committing to a number.
+
+**Streaming responses (future)**: for chat replies especially, streaming via SSE or chunked transfer would let the UI display tokens as they arrive instead of waiting for the full generation. Not needed for MVP but materially improves perceived latency.
 
 ## Generation quality concerns (not yet addressed)
 
