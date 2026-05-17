@@ -130,6 +130,18 @@ class SuggestTopicsResponse(BaseModel):
     suggestions: list[str]
 
 
+class MessageRequest(BaseModel):
+    text: str
+
+
+class MessageResponse(BaseModel):
+    overview: OverviewOut | None = None
+    questions: list[QuestionOut] | None = None
+    reply: str | None = None
+    review: QuestionOut | None = None
+    suggestions: list[str] | None = None
+
+
 # Fix forward references after all models are defined
 ConversationDetailOut.model_rebuild()
 
@@ -276,3 +288,30 @@ async def actions(conversation_id: int, body: ActionRequest):
         return SuggestTopicsResponse(suggestions=suggestions)
 
     raise HTTPException(status_code=422, detail=f"unknown action: {body.action!r}")
+
+
+@app.post("/conversations/{conversation_id}/message", response_model=MessageResponse)
+async def message(conversation_id: int, body: MessageRequest) -> MessageResponse:
+    _get_conversation_or_404(conversation_id)
+    try:
+        result = _loop.process_message(conversation_id, body.text)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    if isinstance(result, str):
+        return MessageResponse(reply=result)
+    if isinstance(result, list):
+        if not result or isinstance(result[0], str):
+            return MessageResponse(suggestions=result)
+        return MessageResponse(questions=[_question_out(q) for q in result])
+    first, second = result
+    if isinstance(first, str):
+        return MessageResponse(
+            reply=first,
+            review=_question_out(second) if second else None,
+        )
+    overview, questions = first, second
+    return MessageResponse(
+        overview=OverviewOut(points=overview.points),
+        questions=[_question_out(q) for q in questions],
+    )
