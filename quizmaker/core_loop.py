@@ -348,5 +348,53 @@ class CoreLoop:
         )
         return state["review"]
 
+    def chat(
+        self, conversation_id: int, user_text: str
+    ) -> tuple[str, AskedQuestion | None]:
+        """Send a free-form message and get a plain Gemma reply.
+
+        Returns (reply_text, review_question_or_None). A review question is
+        included when this chat turn crosses the review_every threshold.
+        """
+        conv = self.store.get_conversation(conversation_id)
+
+        # Load last 10 messages for context before storing the new one
+        history = self.store.get_messages(conversation_id, limit=10)
+
+        self.store.add_message(
+            conversation_id, "user", "chat", json.dumps({"text": user_text})
+        )
+
+        reply = self.generator.generate_chat_reply(  # type: ignore[attr-defined]
+            conv["topic"], conv["overview_json"], history, user_text
+        )
+
+        self.store.add_message(
+            conversation_id, "assistant", "chat", json.dumps({"text": reply})
+        )
+
+        # Increment turn count and check for review injection
+        turn_count = conv["turn_count"] + 1
+        self.store.decrement_cooldowns(conversation_id)
+        self.store.save_conversation(
+            conversation_id, conv["topic"], conv["overview_json"], turn_count
+        )
+
+        review: AskedQuestion | None = None
+        if turn_count % self.review_every == 0:
+            review_item = self.store.due_review_item(conversation_id)
+            if review_item is not None:
+                self.store.activate_for_review(review_item.id, conversation_id)
+                self.store.add_message(
+                    conversation_id,
+                    "assistant",
+                    "review",
+                    json.dumps({"item_id": review_item.id}),
+                    quiz_item_id=review_item.id,
+                )
+                review = self._to_asked(review_item)
+
+        return reply, review
+
     def _to_asked(self, item: ReviewItem) -> AskedQuestion:
         return AskedQuestion(item_id=item.id, mcq=item.mcq, is_review=True)

@@ -7,7 +7,7 @@ import re
 import sys
 from typing import Any
 
-from quizmaker.schemas import MCQ, Overview, Overview
+from quizmaker.schemas import MCQ, Overview
 
 MODEL_ID = "google/gemma-4-E2B-it"
 MAX_NEW_TOKENS = 768
@@ -158,3 +158,43 @@ class GemmaQuizGenerator:
                 )
                 print(f"[retry {attempt + 1}/3] raw output: {current_raw!r}", file=sys.stderr)
         raise ValueError(f"MCQ {question_number} failed after 3 attempts: {last_error}")
+
+    def generate_chat_reply(
+        self,
+        topic: str,
+        overview_json: str,
+        history: list[dict],
+        user_text: str,
+    ) -> str:
+        """Plain conversational reply. No quiz generation."""
+        overview_text = ""
+        if overview_json:
+            try:
+                overview_text = "\n".join(
+                    f"- {p}" for p in Overview.from_json(overview_json).points
+                )
+            except Exception:
+                pass
+
+        system_content = f"You are a study assistant helping the user learn about: {topic}."
+        if overview_text:
+            system_content += f"\n\nCurrent overview:\n{overview_text}"
+        system_content += (
+            "\n\nAnswer the user's question conversationally, concisely, and educationally. "
+            "Do not generate quiz questions unprompted."
+        )
+
+        messages: list[dict] = [{"role": "system", "content": system_content}]
+        for msg in history:
+            try:
+                text = json.loads(msg["content_json"]).get("text", "")
+            except Exception:
+                continue
+            if msg["kind"] == "chat" and text:
+                messages.append({"role": msg["role"], "content": text})
+
+        messages.append({"role": "user", "content": user_text})
+
+        reply = run_inference(self.model, self.processor, messages, MAX_NEW_TOKENS)
+        print(f"[chat] raw output: {reply!r}", file=sys.stderr)
+        return reply.strip()

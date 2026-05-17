@@ -103,6 +103,15 @@ class TurnResponse(BaseModel):
     review: QuestionOut | None
 
 
+class ChatRequest(BaseModel):
+    text: str
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    review: QuestionOut | None
+
+
 # Fix forward references after all models are defined
 ConversationDetailOut.model_rebuild()
 
@@ -210,3 +219,15 @@ async def turn(conversation_id: int) -> TurnResponse:
     _get_conversation_or_404(conversation_id)
     review = _loop.next_turn(conversation_id)
     return TurnResponse(review=_question_out(review) if review else None)
+
+
+@app.post("/conversations/{conversation_id}/chat", response_model=ChatResponse)
+async def chat(conversation_id: int, body: ChatRequest) -> ChatResponse:
+    _get_conversation_or_404(conversation_id)
+    if not body.text.strip():
+        raise HTTPException(status_code=422, detail="text cannot be empty")
+    reply, review = _loop.chat(conversation_id, body.text.strip())
+    return ChatResponse(
+        reply=reply,
+        review=_question_out(review) if review else None,
+    )
