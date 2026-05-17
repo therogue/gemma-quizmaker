@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -11,6 +12,7 @@ from pydantic import BaseModel
 
 from quizmaker.core_loop import AskedQuestion, CoreLoop
 from quizmaker.gemma import GemmaQuizGenerator, load_model
+from quizmaker.schemas import Overview
 from quizmaker.storage import QuizStore
 
 _DB_PATH = Path(os.environ.get("QUIZMAKER_DB", "data/quizmaker.sqlite3"))
@@ -43,9 +45,29 @@ async def index() -> FileResponse:
 
 # ── request / response models ────────────────────────────────────────────────
 
-class StartTopicRequest(BaseModel):
+class ConversationOut(BaseModel):
+    id: int
+    title: str
     topic: str
-    quiz_count: int = 3
+    turn_count: int
+    created_at: str
+    updated_at: str
+
+
+class ConversationDetailOut(BaseModel):
+    id: int
+    title: str
+    topic: str
+    turn_count: int
+    created_at: str
+    updated_at: str
+    overview: OverviewOut | None
+    messages: list[dict]
+    active_questions: list[QuestionOut]
+
+
+class OverviewOut(BaseModel):
+    points: list[str]
 
 
 class QuestionOut(BaseModel):
@@ -55,8 +77,9 @@ class QuestionOut(BaseModel):
     choices: list[str]
 
 
-class OverviewOut(BaseModel):
-    points: list[str]
+class StartTopicRequest(BaseModel):
+    topic: str
+    quiz_count: int = 3
 
 
 class StartTopicResponse(BaseModel):
@@ -80,7 +103,18 @@ class TurnResponse(BaseModel):
     review: QuestionOut | None
 
 
+# Fix forward references after all models are defined
+ConversationDetailOut.model_rebuild()
+
+
 # ── helpers ──────────────────────────────────────────────────────────────────
+
+def _get_conversation_or_404(conversation_id: int) -> dict:
+    conv = _store.get_conversation(conversation_id)
+    if conv is None:
+        raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
+    return conv
+
 
 def _question_out(asked: AskedQuestion) -> QuestionOut:
     return QuestionOut(
@@ -91,12 +125,63 @@ def _question_out(asked: AskedQuestion) -> QuestionOut:
     )
 
 
-# ── endpoints ────────────────────────────────────────────────────────────────
-
-@app.post("/start-topic", response_model=StartTopicResponse)
-async def start_topic(body: StartTopicRequest) -> StartTopicResponse:
+def _overview_from_json(overview_json: str) -> OverviewOut | None:
+    if not overview_json:
+        return None
     try:
-        overview, questions = _loop.start_topic(body.topic, quiz_count=body.quiz_count)
+        return OverviewOut(points=Overview.from_json(overview_json).points)
+    except Exception:
+        return None
+
+
+# ── conversation endpoints ────────────────────────────────────────────────────
+
+@app.post("/conversations", response_model=ConversationOut, status_code=201)
+async def create_conversation() -> ConversationOut:
+    conv_id = _store.create_conversation()
+    conv = _store.get_conversation(conv_id)
+    return ConversationOut(**{k: conv[k] for k in ConversationOut.model_fields})
+
+
+@app.get("/conversations", response_model=list[ConversationOut])
+async def list_conversations() -> list[ConversationOut]:
+    convs = _store.list_conversations()
+    return [ConversationOut(**{k: c[k] for k in ConversationOut.model_fields}) for c in convs]
+
+
+@app.get("/conversations/{conversation_id}", response_model=ConversationDetailOut)
+async def get_conversation(conversation_id: int) -> ConversationDetailOut:
+    conv = _get_conversation_or_404(conversation_id)
+    messages = _store.get_messages(conversation_id)
+    active_items = _store.get_active_quiz_items(conversation_id)
+    return ConversationDetailOut(
+        id=conv["id"],
+        title=conv["title"],
+        topic=conv["topic"],
+        turn_count=conv["turn_count"],
+        created_at=conv["created_at"],
+        updated_at=conv["updated_at"],
+        overview=_overview_from_json(conv["overview_json"]),
+        messages=[dict(m) for m in messages],
+        active_questions=[
+            QuestionOut(
+                item_id=item.id,
+                is_review=False,
+                question=item.mcq.question,
+                choices=item.mcq.choices,
+            )
+            for item in active_items
+        ],
+    )
+
+
+# ── conversation-scoped study endpoints ──────────────────────────────────────
+
+@app.post("/conversations/{conversation_id}/start-topic", response_model=StartTopicResponse)
+async def start_topic(conversation_id: int, body: StartTopicRequest) -> StartTopicResponse:
+    _get_conversation_or_404(conversation_id)
+    try:
+        overview, questions = _loop.start_topic(conversation_id, body.topic, quiz_count=body.quiz_count)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return StartTopicResponse(
@@ -105,10 +190,11 @@ async def start_topic(body: StartTopicRequest) -> StartTopicResponse:
     )
 
 
-@app.post("/answer", response_model=AnswerResponse)
-async def answer(body: AnswerRequest) -> AnswerResponse:
+@app.post("/conversations/{conversation_id}/answer", response_model=AnswerResponse)
+async def answer(conversation_id: int, body: AnswerRequest) -> AnswerResponse:
+    _get_conversation_or_404(conversation_id)
     try:
-        result = _loop.answer_item(body.item_id, body.choice_index)
+        result = _loop.answer_item(conversation_id, body.item_id, body.choice_index)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return AnswerResponse(
@@ -119,7 +205,8 @@ async def answer(body: AnswerRequest) -> AnswerResponse:
     )
 
 
-@app.post("/turn", response_model=TurnResponse)
-async def turn() -> TurnResponse:
-    review = _loop.next_turn()
+@app.post("/conversations/{conversation_id}/turn", response_model=TurnResponse)
+async def turn(conversation_id: int) -> TurnResponse:
+    _get_conversation_or_404(conversation_id)
+    review = _loop.next_turn(conversation_id)
     return TurnResponse(review=_question_out(review) if review else None)

@@ -129,8 +129,8 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
                     review_every=2,
                     log_path=log_path,
                 )
-
-                overview, questions = loop.start_topic("cells", quiz_count=1)
+                conv_id = store.create_conversation()
+                overview, questions = loop.start_topic(conv_id, "cells", quiz_count=1)
 
                 self.assertEqual(overview.points, ["Overview for cells"])
                 self.assertEqual(len(questions), 1)
@@ -161,7 +161,8 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
                 except TypeError as exc:
                     self.fail(f"CoreLoop does not accept verifier dependency: {exc}")
 
-                _, questions = loop.start_topic("cells", quiz_count=1)
+                conv_id = store.create_conversation()
+                _, questions = loop.start_topic(conv_id, "cells", quiz_count=1)
 
                 self.assertEqual([question.mcq.question for question in questions], ["Good question?"])
                 self.assertEqual(generator.quiz_calls, 2)
@@ -188,7 +189,8 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
                 except TypeError as exc:
                     self.fail(f"CoreLoop does not accept verifier dependency: {exc}")
 
-                _, questions = loop.start_topic("cells", quiz_count=1)
+                conv_id = store.create_conversation()
+                _, questions = loop.start_topic(conv_id, "cells", quiz_count=1)
 
                 self.assertEqual(questions, [])
                 self.assertEqual(generator.quiz_calls, 2)
@@ -205,11 +207,12 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
                 except TypeError as exc:
                     self.fail(f"CoreLoop does not accept safety checker dependency: {exc}")
 
-                overview, questions = loop.start_topic("unsafe topic", quiz_count=1)
+                conv_id = store.create_conversation()
+                overview, questions = loop.start_topic(conv_id, "unsafe topic", quiz_count=1)
 
                 self.assertIn("cannot help", overview.points[0].lower())
                 self.assertEqual(questions, [])
-                self.assertIsNone(store.due_review_item())
+                self.assertIsNone(store.due_review_item(conv_id))
             finally:
                 store.close()
 
@@ -224,10 +227,11 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
                     review_every=1,
                     log_path=log_path,
                 )
-                _, questions = loop.start_topic("cells", quiz_count=1)
-                loop.answer(questions[0], 1)
+                conv_id = store.create_conversation()
+                _, questions = loop.start_topic(conv_id, "cells", quiz_count=1)
+                loop.answer(conv_id, questions[0], 1)
 
-                review = loop.next_turn()
+                review = loop.next_turn(conv_id)
 
                 self.assertIsNotNone(review)
                 self.assertTrue(review.is_review)
@@ -252,9 +256,10 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
                     review_every=1,
                     log_path=log_path,
                 )
-                _, questions = loop.start_topic("cells", quiz_count=1)
+                conv_id = store.create_conversation()
+                _, questions = loop.start_topic(conv_id, "cells", quiz_count=1)
 
-                result = loop.answer(questions[0], 1)
+                result = loop.answer(conv_id, questions[0], 1)
 
                 self.assertFalse(result[0])
                 entries = read_log_entries(log_path)

@@ -58,6 +58,7 @@ class AnswerResult:
 
 class CoreLoopState(TypedDict, total=False):
     operation: str
+    conversation_id: int
     topic: str
     overview: str
     quiz_count: int
@@ -98,14 +99,6 @@ class CoreLoop:
         self.safety_checker = safety_checker or AllowAllSafetyChecker()
         self.graph_node_names = GRAPH_NODE_NAMES
         self.graph = self._build_graph()
-        session = store.load_session()
-        self.topic = session["topic"]
-        overview_raw = session["overview"]
-        try:
-            self.overview: Overview | None = Overview.from_json(overview_raw) if overview_raw else None
-        except (ValueError, Exception):
-            self.overview = None
-        self.turn_count = session["turn_count"]
 
     def _build_graph(self):
         graph = StateGraph(CoreLoopState)
@@ -184,23 +177,25 @@ class CoreLoop:
         return output
 
     def _grade_node(self, state: CoreLoopState) -> CoreLoopState:
+        conversation_id = state["conversation_id"]
         item_id = state["item_id"]
         choice_index = state["choice_index"]
         if not 0 <= choice_index <= 3:
             raise ValueError("choice_index must be 0-3")
 
-        item = self.store.get_quiz_item(item_id)
+        item = self.store.get_quiz_item(item_id, conversation_id)
         if item is None:
-            raise ValueError(f"quiz item not found: {item_id}")
+            raise ValueError(f"quiz item {item_id} not found in conversation {conversation_id}")
 
         is_correct = choice_index == item.mcq.answer_index
-        self.store.record_answer(item.id, is_correct)
+        self.store.record_answer(item.id, conversation_id, is_correct)
         if not is_correct:
-            self.store.mark_wrong_for_review(item.id)
-        self.store.add_history(
+            self.store.mark_wrong_for_review(item.id, conversation_id)
+        self.store.add_message(
+            conversation_id,
             "user",
             "answer",
-            f"item={item.id} choice={choice_index} correct={is_correct}",
+            json.dumps({"item_id": item.id, "choice_index": choice_index, "correct": is_correct}),
         )
         output: CoreLoopState = {
             "result": AnswerResult(
@@ -214,15 +209,27 @@ class CoreLoop:
         return output
 
     def _review_inject_node(self, state: CoreLoopState) -> CoreLoopState:
-        self.turn_count += 1
-        self.store.decrement_cooldowns()
-        self.store.save_session(self.topic, self.overview.to_json() if self.overview else "", self.turn_count)
+        conversation_id = state["conversation_id"]
+        conv = self.store.get_conversation(conversation_id)
+        turn_count = conv["turn_count"] + 1
+
+        self.store.decrement_cooldowns(conversation_id)
+        self.store.save_conversation(
+            conversation_id, conv["topic"], conv["overview_json"], turn_count
+        )
 
         review: AskedQuestion | None = None
-        if self.turn_count % self.review_every == 0:
-            review_item = self.store.due_review_item()
+        if turn_count % self.review_every == 0:
+            review_item = self.store.due_review_item(conversation_id)
             if review_item is not None:
-                self.store.add_history("assistant", "review", f"item={review_item.id}")
+                self.store.activate_for_review(review_item.id, conversation_id)
+                self.store.add_message(
+                    conversation_id,
+                    "assistant",
+                    "review",
+                    json.dumps({"item_id": review_item.id}),
+                    quiz_item_id=review_item.id,
+                )
                 review = self._to_asked(review_item)
 
         output: CoreLoopState = {"review": review}
@@ -268,46 +275,77 @@ class CoreLoop:
             return [self._jsonable(item) for item in value]
         return value
 
-    def start_topic(self, topic: str, quiz_count: int = 3) -> tuple[Overview, list[AskedQuestion]]:
-        self.topic = topic.strip()
-        if not self.topic:
+    def start_topic(
+        self, conversation_id: int, topic: str, quiz_count: int = 3
+    ) -> tuple[Overview, list[AskedQuestion]]:
+        topic = topic.strip()
+        if not topic:
             raise ValueError("topic cannot be empty")
+
+        # Retire old active items when focus changes to a new topic
+        self.store.deactivate_active_items(conversation_id)
 
         state = self.graph.invoke(
             {
                 "operation": "start_topic",
-                "topic": self.topic,
+                "conversation_id": conversation_id,
+                "topic": topic,
                 "quiz_count": quiz_count,
             }
         )
         overview_json = state["overview"]
-        self.overview = Overview.from_json(overview_json)
+        overview = Overview.from_json(overview_json)
         mcqs = state["mcqs"]
-        item_ids = self.store.add_quiz_items(self.topic, mcqs)
-        self.turn_count = 0
-        self.store.save_session(self.topic, overview_json, self.turn_count)
-        self.store.add_history("assistant", "overview", overview_json)
-        return self.overview, [
+
+        item_ids = self.store.add_quiz_items(conversation_id, topic, mcqs)
+
+        # Auto-title from first topic if conversation still has the default title
+        conv = self.store.get_conversation(conversation_id)
+        if conv["title"] == "New conversation":
+            self.store.set_conversation_title(conversation_id, topic)
+
+        self.store.save_conversation(conversation_id, topic, overview_json, turn_count=0)
+        self.store.add_message(conversation_id, "assistant", "overview", overview_json)
+        for item_id, mcq in zip(item_ids, mcqs):
+            self.store.add_message(
+                conversation_id,
+                "assistant",
+                "question",
+                json.dumps(mcq.to_dict()),
+                quiz_item_id=item_id,
+            )
+
+        return overview, [
             AskedQuestion(item_id=item_id, mcq=mcq, is_review=False)
             for item_id, mcq in zip(item_ids, mcqs)
         ]
 
-    def answer(self, asked: AskedQuestion, choice_index: int) -> tuple[bool, str]:
-        result = self.answer_item(asked.item_id, choice_index)
+    def answer(
+        self, conversation_id: int, asked: AskedQuestion, choice_index: int
+    ) -> tuple[bool, str]:
+        result = self.answer_item(conversation_id, asked.item_id, choice_index)
         return result.is_correct, result.rationale
 
-    def answer_item(self, item_id: int, choice_index: int) -> AnswerResult:
+    def answer_item(
+        self, conversation_id: int, item_id: int, choice_index: int
+    ) -> AnswerResult:
         state = self.graph.invoke(
             {
                 "operation": "answer",
+                "conversation_id": conversation_id,
                 "item_id": item_id,
                 "choice_index": choice_index,
             }
         )
         return state["result"]
 
-    def next_turn(self) -> AskedQuestion | None:
-        state = self.graph.invoke({"operation": "next_turn"})
+    def next_turn(self, conversation_id: int) -> AskedQuestion | None:
+        state = self.graph.invoke(
+            {
+                "operation": "next_turn",
+                "conversation_id": conversation_id,
+            }
+        )
         return state["review"]
 
     def _to_asked(self, item: ReviewItem) -> AskedQuestion:
