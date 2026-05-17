@@ -115,9 +115,10 @@ UI completion:
 - [x] Review questions batch after all current cards answered (not mid-round).
 - [x] Cross-topic review labelling: review cards include a source-topic tag using the quiz item's originating topic.
 - [x] Optional real-model integration test added behind `RUN_REAL_MODEL_TEST=1`.
+- [x] Real-model integration test passed on local CPU; results recorded in `docs/TEST_RESULTS_M3.md`.
 
 **Remaining before M3 is done:**
-- [ ] **Real model integration run**: execute the optional `RUN_REAL_MODEL_TEST=1` test on the target GPU and record latency/robustness findings.
+- [ ] **Target GPU latency run**: execute the optional `RUN_REAL_MODEL_TEST=1` test on the intended demo GPU and record latency findings.
 
 **Done when:** a non-developer can open the app, create multiple conversations, switch between them, drill from a topic into a sub-topic inside the same conversation, reload the page, and see the transcript plus per-conversation review questions preserved.
 
