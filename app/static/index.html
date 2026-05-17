@@ -317,9 +317,31 @@
     }
     .choice-btn:hover:not(:disabled) { background: #ebebeb; }
     .choice-btn:disabled { cursor: default; }
+    .choice-btn.selected { background: #e8f0ff; border-color: #6c8fdc; color: #1a2e66; }
     .choice-btn.correct  { background: #d4edda; border-color: #28a745; color: #155724; font-weight: 600; }
     .choice-btn.wrong    { background: #f8d7da; border-color: #dc3545; color: #721c24; }
     .choice-btn.revealed { background: #d4edda; border-color: #28a745; color: #155724; font-weight: 600; }
+    .q-hint {
+      margin: -2px 0 7px;
+      color: #888;
+      font-size: 0.74rem;
+    }
+    .answer-submit {
+      margin-top: 8px;
+      width: 100%;
+      border: none;
+      border-radius: 7px;
+      padding: 7px 10px;
+      background: #1a1a2e;
+      color: #fff;
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+    .answer-submit:disabled {
+      opacity: 0.45;
+      cursor: default;
+    }
     .q-rationale {
       margin-top: 10px;
       padding: 8px 10px;
@@ -520,7 +542,7 @@
   // Rebuild panel from message history, grouped by topic section.
   function renderPanelFromHistory(messages) {
     // First pass: collect answers and reviews
-    const answers  = new Map(); // item_id → {choice_index, correct}
+    const answers  = new Map(); // item_id -> {choice_indices, correct}
     const reviewed = new Set(); // item_ids shown as review
 
     for (const msg of messages) {
@@ -557,13 +579,20 @@
         );
         const ans = answers.get(msg.quiz_item_id);
         if (ans != null) {
-          const correctIndex = ans.correct_index ?? c.answer_index;
+          const selectedIndices = ans.choice_indices ?? (ans.choice_index != null ? [ans.choice_index] : []);
+          const correctIndices =
+            ans.correct_indices ??
+            (ans.correct_index != null ? [ans.correct_index] : (c.answer_indices ?? []));
+          const selectedSet = new Set(selectedIndices);
+          const correctSet = new Set(correctIndices);
           card.querySelectorAll('.choice-btn').forEach((btn, i) => {
             btn.disabled = true;
-            if (i === ans.choice_index && ans.correct) btn.classList.add('correct');
-            else if (i === ans.choice_index)           btn.classList.add('wrong');
-            else if (i === correctIndex)                btn.classList.add('revealed');
+            if (selectedSet.has(i) && correctSet.has(i)) btn.classList.add('correct');
+            else if (selectedSet.has(i))                 btn.classList.add('wrong');
+            else if (correctSet.has(i))                  btn.classList.add('revealed');
           });
+          const submit = card.querySelector('.answer-submit');
+          if (submit) submit.disabled = true;
           const rat = document.createElement('div');
           rat.className = 'q-rationale' + (ans.correct ? '' : ' wrong');
           rat.textContent = ans.rationale || c.rationale || '';
@@ -740,16 +769,39 @@
     qEl.textContent = q.question;
     card.appendChild(qEl);
 
+    const hint = document.createElement('div');
+    hint.className = 'q-hint';
+    hint.textContent = 'Select one or more.';
+    card.appendChild(hint);
+
     const choicesEl = document.createElement('div');
     choicesEl.className = 'q-choices';
+    const selected = new Set();
     ['A', 'B', 'C', 'D'].forEach((letter, i) => {
       const btn = document.createElement('button');
       btn.className = 'choice-btn';
       btn.textContent = `${letter}. ${q.choices[i]}`;
-      btn.onclick = () => submitAnswer(q.item_id, i, card);
+      btn.onclick = () => {
+        if (card.classList.contains('answered')) return;
+        if (selected.has(i)) {
+          selected.delete(i);
+          btn.classList.remove('selected');
+        } else {
+          selected.add(i);
+          btn.classList.add('selected');
+        }
+        submit.disabled = selected.size === 0;
+      };
       choicesEl.appendChild(btn);
     });
     card.appendChild(choicesEl);
+
+    const submit = document.createElement('button');
+    submit.className = 'answer-submit';
+    submit.textContent = 'Submit';
+    submit.disabled = true;
+    submit.onclick = () => submitAnswer(q.item_id, Array.from(selected), card);
+    card.appendChild(submit);
 
     const target = section ? section.querySelector('.topic-questions') : activeQs;
     target.appendChild(card);
@@ -824,18 +876,24 @@
     chatInput.focus();
   }
 
-  async function submitAnswer(itemId, choiceIndex, card) {
+  async function submitAnswer(itemId, choiceIndices, card) {
     card.querySelectorAll('.choice-btn').forEach(b => b.disabled = true);
+    const submit = card.querySelector('.answer-submit');
+    if (submit) submit.disabled = true;
     try {
       const data = await post(`/conversations/${activeConvId}/answer`, {
-        item_id: itemId, choice_index: choiceIndex,
+        item_id: itemId, choice_indices: choiceIndices,
       });
       // Mark buttons correct/wrong/revealed
       const btns = card.querySelectorAll('.choice-btn');
+      const selectedSet = new Set(choiceIndices);
+      const correctIndices = data.correct_indices ?? (data.correct_index != null ? [data.correct_index] : []);
+      const correctSet = new Set(correctIndices);
       btns.forEach((btn, i) => {
-        if (i === choiceIndex && i === data.correct_index) btn.classList.add('correct');
-        else if (i === choiceIndex)        btn.classList.add('wrong');
-        else if (i === data.correct_index) btn.classList.add('revealed');
+        btn.classList.remove('selected');
+        if (selectedSet.has(i) && correctSet.has(i)) btn.classList.add('correct');
+        else if (selectedSet.has(i))                 btn.classList.add('wrong');
+        else if (correctSet.has(i))                  btn.classList.add('revealed');
       });
       // Show rationale inline on the card
       const rat = document.createElement('div');
@@ -848,6 +906,7 @@
     } catch (e) {
       appendSystemMsg(`Error: ${e.message}`);
       card.querySelectorAll('.choice-btn').forEach(b => b.disabled = false);
+      if (submit) submit.disabled = false;
     }
   }
 

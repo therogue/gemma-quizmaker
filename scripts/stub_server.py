@@ -32,20 +32,93 @@ class FakeGenerator:
             "Concept three: third key idea about this topic",
         ])
 
-    def generate_quiz(self, topic: str, overview: str, count: int = 3) -> list[MCQ]:
+    def generate_quiz(
+        self,
+        topic: str,
+        overview: str,
+        count: int = 3,
+        avoid_questions: list[str] | None = None,
+    ) -> list[MCQ]:
+        templates = [
+            (
+                f"[Stub Q1] Which statements accurately describe the definition of {topic}?",
+                [
+                    f"{topic} is the focus of this study session",
+                    f"{topic} connects to several key concepts",
+                    f"{topic} has no practical examples",
+                    f"{topic} can only be learned by memorizing dates",
+                ],
+                [0, 1],
+                f"The first two choices are correct because they accurately describe {topic}.",
+            ),
+            (
+                f"[Stub Q2] Which example best applies a key idea from {topic}?",
+                [
+                    f"Using {topic} to explain a real scenario",
+                    f"Ignoring all context around {topic}",
+                    f"Treating {topic} as unrelated facts only",
+                    f"Replacing {topic} with an unrelated subject",
+                ],
+                [0],
+                f"The first choice is correct because it applies {topic} to a concrete scenario.",
+            ),
+            (
+                f"[Stub Q3] Which statements are common misconceptions about {topic}?",
+                [
+                    f"{topic} never changes with context",
+                    f"{topic} can involve multiple connected ideas",
+                    f"{topic} is always solved by one memorized phrase",
+                    f"{topic} can be explained with examples",
+                ],
+                [0, 2],
+                f"The first and third choices are misconceptions about {topic}.",
+            ),
+            (
+                f"[Stub Q4] Which comparison statements about {topic} are accurate?",
+                [
+                    f"{topic} can be compared across different examples",
+                    f"{topic} always has one fixed context",
+                    f"{topic} may share patterns with related ideas",
+                    f"{topic} should never be connected to prior knowledge",
+                ],
+                [0, 2],
+                f"The first and third choices are accurate comparisons for {topic}.",
+            ),
+            (
+                f"[Stub Q5] Which steps help explain {topic} clearly?",
+                [
+                    "Start with a concrete example",
+                    "Define the important terms",
+                    "Skip the relationship between ideas",
+                    "Use only unrelated trivia",
+                ],
+                [0, 1],
+                f"Concrete examples and clear definitions help explain {topic}.",
+            ),
+            (
+                f"[Stub Q6] Which cause-and-effect statements fit {topic}?",
+                [
+                    f"Changing context can change how {topic} is applied",
+                    f"{topic} has no causes or effects",
+                    f"Examples can reveal consequences of {topic}",
+                    f"Evidence is irrelevant when studying {topic}",
+                ],
+                [0, 2],
+                f"The first and third choices describe useful cause-and-effect thinking for {topic}.",
+            ),
+        ]
+        avoided = set(avoid_questions or [])
+        available = [template for template in templates if template[0] not in avoided]
+        if not available:
+            return []
         return [
             MCQ(
-                question=f"[Stub Q{i + 1}] What is a key fact about {topic}?",
-                choices=[
-                    f"Correct answer about {topic}",
-                    f"Wrong answer B about {topic}",
-                    f"Wrong answer C about {topic}",
-                    f"Wrong answer D about {topic}",
-                ],
-                answer_index=0,
-                rationale=f"The first choice is correct because it accurately describes {topic}.",
+                question=available[i % len(available)][0],
+                choices=available[i % len(available)][1],
+                answer_indices=available[i % len(available)][2],
+                rationale=available[i % len(available)][3],
             )
-            for i in range(count)
+            for i in range(min(count, len(available)))
         ]
 
     def generate_chat_reply(
@@ -136,13 +209,15 @@ class StartTopicResponse(BaseModel):
 
 class AnswerRequest(BaseModel):
     item_id: int
-    choice_index: int
+    choice_index: int | None = None
+    choice_indices: list[int] | None = None
 
 
 class AnswerResponse(BaseModel):
     item_id: int
     is_correct: bool
     correct_index: int
+    correct_indices: list[int]
     rationale: str
     review: QuestionOut | None = None
 
@@ -264,14 +339,18 @@ def start_topic(conversation_id: int, body: StartTopicRequest) -> StartTopicResp
 @app.post("/conversations/{conversation_id}/answer", response_model=AnswerResponse)
 def answer(conversation_id: int, body: AnswerRequest) -> AnswerResponse:
     _get_conversation_or_404(conversation_id)
+    choice_indices = body.choice_indices
+    if choice_indices is None:
+        choice_indices = [body.choice_index] if body.choice_index is not None else []
     try:
-        result = _loop.answer_item(conversation_id, body.item_id, body.choice_index)
+        result = _loop.answer_item(conversation_id, body.item_id, choice_indices)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return AnswerResponse(
         item_id=result.item_id,
         is_correct=result.is_correct,
         correct_index=result.correct_index,
+        correct_indices=result.correct_indices,
         rationale=result.rationale,
         review=_question_out(result.review) if result.review else None,
     )

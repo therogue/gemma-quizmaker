@@ -49,6 +49,25 @@ class SequenceGenerator:
         return self.mcqs[start : start + count]
 
 
+class DuplicateThenReplacementGenerator:
+    def __init__(self):
+        self.quiz_calls = 0
+
+    def generate_overview(self, topic):
+        return Overview(points=[f"Overview for {topic}"])
+
+    def generate_quiz(self, topic, overview, count=3):
+        self.quiz_calls += 1
+        if self.quiz_calls == 1:
+            return [
+                MCQ("What is the main role of cells?", ["A", "B", "C", "D"], 0, "A"),
+                MCQ("What is the main role of cells?", ["A", "B", "C", "D"], 1, "B"),
+            ][:count]
+        return [
+            MCQ("Which organelle contains genetic material?", ["A", "B", "C", "D"], 2, "C")
+        ]
+
+
 class QuestionVerifier:
     def __init__(self, accepted_question):
         self.accepted_question = accepted_question
@@ -195,6 +214,28 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
                 self.assertEqual(questions, [])
                 self.assertEqual(generator.quiz_calls, 2)
                 self.assertEqual(verifier.calls, 2)
+            finally:
+                store.close()
+
+    def test_verify_retries_near_duplicate_questions(self):
+        generator = DuplicateThenReplacementGenerator()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                loop = CoreLoop(store, generator)
+                conv_id = store.create_conversation()
+
+                _, questions = loop.start_topic(conv_id, "cells", quiz_count=2)
+
+                self.assertEqual(
+                    [question.mcq.question for question in questions],
+                    [
+                        "What is the main role of cells?",
+                        "Which organelle contains genetic material?",
+                    ],
+                )
+                self.assertEqual(generator.quiz_calls, 2)
             finally:
                 store.close()
 

@@ -46,7 +46,7 @@ Behavior:
 - Preserves prior messages and quiz items in the same conversation.
 - Counts as one turn.
 - Does not auto-generate topic suggestions.
-- Stores quiz question transcript messages without `answer_index` or `rationale`.
+- Stores quiz question transcript messages without `answer_indices`, `answer_index`, or `rationale`.
 
 Question response shape:
 
@@ -71,7 +71,7 @@ Request:
 ```json
 {
   "item_id": 1,
-  "choice_index": 2
+  "choice_indices": [0, 2]
 }
 ```
 
@@ -80,8 +80,10 @@ Behavior:
 - Rejects quiz items from other conversations.
 - Counts as one turn.
 - Wrong answers are promoted into the per-conversation review queue.
-- The answer message stores `correct_index` and `rationale` only after the user answers.
+- Grades the selected answer set exactly against all correct choices.
+- The answer message stores `correct_indices`, compatibility `correct_index`, and `rationale` only after the user answers.
 - May return a review question if the turn crosses the review interval.
+- Compatibility: older clients may still send `choice_index`.
 
 Response:
 
@@ -89,7 +91,8 @@ Response:
 {
   "item_id": 1,
   "is_correct": true,
-  "correct_index": 2,
+  "correct_index": 0,
+  "correct_indices": [0, 2],
   "rationale": "Photosynthesis converts light energy into chemical energy.",
   "review": null
 }

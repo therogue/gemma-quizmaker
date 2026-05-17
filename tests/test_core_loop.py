@@ -33,6 +33,18 @@ class SuggestingGenerator(FakeGenerator):
         return ["Suggested topic"]
 
 
+class MultiAnswerGenerator(FakeGenerator):
+    def generate_quiz(self, topic, overview, count=3):
+        return [
+            MCQ(
+                question=f"Which statements about {topic} are true?",
+                choices=["First true statement", "False statement", "Second true statement", "Other false statement"],
+                answer_indices=[0, 2],
+                rationale="The first and third choices are true.",
+            )
+        ]
+
+
 class CoreLoopTests(unittest.TestCase):
     def test_rejects_invalid_configuration_and_inputs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -124,6 +136,28 @@ class CoreLoopTests(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_answer_item_grades_multiple_selected_answers_as_a_set(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                loop = CoreLoop(store, MultiAnswerGenerator(), review_every=99)
+                conv_id = store.create_conversation()
+                _, questions = loop.start_topic(conv_id, "cells", quiz_count=1)
+
+                wrong = loop.answer_item(conv_id, questions[0].item_id, [0])
+                self.assertFalse(wrong.is_correct)
+                self.assertEqual(wrong.correct_indices, [0, 2])
+
+                answer_message = next(
+                    message for message in store.get_messages(conv_id)
+                    if message["kind"] == "answer"
+                )
+                answer_content = json.loads(answer_message["content_json"])
+                self.assertEqual(answer_content["choice_indices"], [0])
+                self.assertEqual(answer_content["correct_indices"], [0, 2])
+            finally:
+                store.close()
+
     def test_answer_item_rejects_unknown_item_id(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
@@ -209,6 +243,7 @@ class CoreLoopTests(unittest.TestCase):
                 question_content = json.loads(question_message["content_json"])
                 self.assertEqual(question_content["topic"], "cells")
                 self.assertNotIn("answer_index", question_content)
+                self.assertNotIn("answer_indices", question_content)
                 self.assertNotIn("rationale", question_content)
             finally:
                 store.close()
@@ -233,6 +268,7 @@ class CoreLoopTests(unittest.TestCase):
                 )
                 answer_content = json.loads(answer_message["content_json"])
                 self.assertEqual(answer_content["correct_index"], 0)
+                self.assertEqual(answer_content["correct_indices"], [0])
                 self.assertEqual(answer_content["rationale"], "Rationale 0")
             finally:
                 store.close()

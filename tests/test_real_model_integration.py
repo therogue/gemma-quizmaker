@@ -41,7 +41,10 @@ class RealModelIntegrationTests(unittest.TestCase):
                 self.assertEqual(question.topic, "photosynthesis")
                 self.assertEqual(len(question.mcq.choices), 4)
 
-                wrong_choice = (question.mcq.answer_index + 1) % 4
+                wrong_choice = next(
+                    index for index in range(4)
+                    if index not in question.mcq.answer_indices
+                )
                 answer = loop.answer_item(
                     conversation_id, question.item_id, wrong_choice
                 )
@@ -67,6 +70,7 @@ class RealModelIntegrationTests(unittest.TestCase):
                 )
                 question_content = json.loads(question_message["content_json"])
                 self.assertNotIn("answer_index", question_content)
+                self.assertNotIn("answer_indices", question_content)
                 self.assertNotIn("rationale", question_content)
 
                 answer_message = next(
@@ -74,6 +78,7 @@ class RealModelIntegrationTests(unittest.TestCase):
                 )
                 answer_content = json.loads(answer_message["content_json"])
                 self.assertIn("correct_index", answer_content)
+                self.assertIn("correct_indices", answer_content)
                 self.assertIn("rationale", answer_content)
 
                 log_count = store.conn.execute(

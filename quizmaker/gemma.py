@@ -96,22 +96,32 @@ class GemmaQuizGenerator:
             print(f"[overview retry] raw output: {raw2!r}", file=sys.stderr)
             return Overview.from_mapping(json.loads(extract_json_object(raw2)))
 
-    def generate_quiz(self, topic: str, overview: str, count: int = 3) -> list[MCQ]:
+    def generate_quiz(
+        self,
+        topic: str,
+        overview: str,
+        count: int = 3,
+        avoid_questions: list[str] | None = None,
+    ) -> list[MCQ]:
         mcqs: list[MCQ] = []
+        prior_questions = list(avoid_questions or [])
         for index in range(count):
-            mcqs.append(self._generate_one_mcq(topic, overview, index + 1, mcqs))
+            mcq = self._generate_one_mcq(topic, overview, index + 1, prior_questions)
+            mcqs.append(mcq)
+            prior_questions.append(mcq.question)
         return mcqs
 
     def _generate_one_mcq(
-        self, topic: str, overview: str, question_number: int, existing: list[MCQ]
+        self, topic: str, overview: str, question_number: int, prior_questions: list[str]
     ) -> MCQ:
-        prior_questions = "\n".join(f"- {mcq.question}" for mcq in existing) or "- none"
+        prior_question_text = "\n".join(f"- {question}" for question in prior_questions) or "- none"
         messages = [
             {
                 "role": "system",
                 "content": (
                     "You are a quiz generator. Output ONLY a valid JSON object with no markdown, "
-                    "no comments, and no surrounding text."
+                    "no comments, and no surrounding text. Questions may have one or more "
+                    "correct choices."
                 ),
             },
             {
@@ -120,11 +130,17 @@ class GemmaQuizGenerator:
                     f"Topic: {topic}\n\n"
                     f"Overview:\n{overview}\n\n"
                     f"Generate multiple-choice question {question_number}. Avoid these questions:\n"
-                    f"{prior_questions}\n\n"
+                    f"{prior_question_text}\n\n"
+                    "Make this question test a distinct overview point, relationship, example, "
+                    "or misconception from the prior questions. Do not reuse the same fact "
+                    "with different wording.\n\n"
+                    "The question may be single-answer or select-all-that-apply. Use multiple "
+                    "correct answers when several choices are true, but leave at least one "
+                    "choice incorrect. Keep every incorrect choice clearly false.\n\n"
                     "Return a JSON object with exactly these fields:\n"
                     '  "question": string\n'
                     '  "choices": array of exactly 4 strings — do NOT include A/B/C/D labels, the UI adds those\n'
-                    '  "answer_index": integer 0-3 (index of the correct choice)\n'
+                    '  "answer_indices": non-empty array of integers 0-3 (indices of all correct choices)\n'
                     '  "rationale": string explaining why the answer is correct'
                 ),
             },

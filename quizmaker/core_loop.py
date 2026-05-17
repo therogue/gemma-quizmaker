@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
+from inspect import Parameter, signature
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Protocol, TypedDict
 
@@ -22,12 +25,40 @@ GRAPH_NODE_NAMES = (
     "review_inject",
 )
 
+_WORD_RE = re.compile(r"[a-z0-9]+")
+_STOP_WORDS = {
+    "about",
+    "according",
+    "answer",
+    "best",
+    "choice",
+    "correct",
+    "does",
+    "from",
+    "following",
+    "into",
+    "most",
+    "question",
+    "the",
+    "these",
+    "this",
+    "what",
+    "which",
+    "would",
+}
+
 
 class QuizGenerator(Protocol):
     def generate_overview(self, topic: str) -> Overview:
         ...
 
-    def generate_quiz(self, topic: str, overview: str, count: int = 3) -> list[MCQ]:
+    def generate_quiz(
+        self,
+        topic: str,
+        overview: str,
+        count: int = 3,
+        avoid_questions: list[str] | None = None,
+    ) -> list[MCQ]:
         ...
 
 
@@ -53,9 +84,14 @@ class AskedQuestion:
 class AnswerResult:
     item_id: int
     is_correct: bool
-    correct_index: int
+    correct_indices: list[int]
     rationale: str
     review: AskedQuestion | None = None
+
+    @property
+    def correct_index(self) -> int:
+        """Legacy single-answer accessor for older callers."""
+        return self.correct_indices[0]
 
 
 class CoreLoopState(TypedDict, total=False):
@@ -67,6 +103,7 @@ class CoreLoopState(TypedDict, total=False):
     mcqs: list[MCQ]
     item_id: int
     choice_index: int
+    choice_indices: list[int]
     result: AnswerResult
     review: AskedQuestion | None
 
@@ -140,11 +177,15 @@ class CoreLoop:
         return output
 
     def _quiz_gen_node(self, state: CoreLoopState) -> CoreLoopState:
+        avoid_questions = self.store.list_quiz_questions(
+            state["conversation_id"], state.get("topic")
+        )
         output: CoreLoopState = {
-            "mcqs": self.generator.generate_quiz(
+            "mcqs": self._generate_quiz(
                 state["topic"],
                 state["overview"],
                 state["quiz_count"],
+                avoid_questions=avoid_questions,
             )
         }
         self._log_node("quiz_gen", state, output)
@@ -152,13 +193,23 @@ class CoreLoop:
 
     def _verify_node(self, state: CoreLoopState) -> CoreLoopState:
         verified: list[MCQ] = []
+        existing_questions = self.store.list_quiz_questions(
+            state["conversation_id"], state.get("topic")
+        )
         for mcq in state["mcqs"]:
-            if self.verifier.verify_mcq(state["topic"], state["overview"], mcq):
+            if self._verify_mcq_quality(state, mcq, verified, existing_questions):
                 verified.append(mcq)
                 continue
 
-            retry = self.generator.generate_quiz(state["topic"], state["overview"], 1)
-            if retry and self.verifier.verify_mcq(state["topic"], state["overview"], retry[0]):
+            retry = self._generate_quiz(
+                state["topic"],
+                state["overview"],
+                1,
+                avoid_questions=existing_questions + [item.question for item in verified],
+            )
+            if retry and self._verify_mcq_quality(
+                state, retry[0], verified, existing_questions
+            ):
                 verified.append(retry[0])
 
         output: CoreLoopState = {"mcqs": verified}
@@ -182,15 +233,15 @@ class CoreLoop:
     def _grade_node(self, state: CoreLoopState) -> CoreLoopState:
         conversation_id = state["conversation_id"]
         item_id = state["item_id"]
-        choice_index = state["choice_index"]
-        if not 0 <= choice_index <= 3:
-            raise ValueError("choice_index must be 0-3")
+        choice_indices = self._normalize_choice_indices(
+            state.get("choice_indices", state.get("choice_index"))
+        )
 
         item = self.store.get_quiz_item(item_id, conversation_id)
         if item is None:
             raise ValueError(f"quiz item {item_id} not found in conversation {conversation_id}")
 
-        is_correct = choice_index == item.mcq.answer_index
+        is_correct = set(choice_indices) == set(item.mcq.answer_indices)
         self.store.record_answer(item.id, conversation_id, is_correct)
         if not is_correct:
             self.store.mark_wrong_for_review(item.id, conversation_id)
@@ -201,8 +252,10 @@ class CoreLoop:
             json.dumps(
                 {
                     "item_id": item.id,
-                    "choice_index": choice_index,
+                    "choice_indices": choice_indices,
+                    "choice_index": choice_indices[0],
                     "correct": is_correct,
+                    "correct_indices": item.mcq.answer_indices,
                     "correct_index": item.mcq.answer_index,
                     "rationale": item.mcq.rationale,
                 }
@@ -213,7 +266,7 @@ class CoreLoop:
             "result": AnswerResult(
                 item_id=item.id,
                 is_correct=is_correct,
-                correct_index=item.mcq.answer_index,
+                correct_indices=item.mcq.answer_indices,
                 rationale=item.mcq.rationale,
                 review=review,
             )
@@ -253,6 +306,7 @@ class CoreLoop:
             return {
                 "question": value.question,
                 "choices": value.choices,
+                "answer_indices": value.answer_indices,
                 "answer_index": value.answer_index,
                 "rationale": value.rationale,
             }
@@ -267,6 +321,7 @@ class CoreLoop:
             return {
                 "item_id": value.item_id,
                 "is_correct": value.is_correct,
+                "correct_indices": value.correct_indices,
                 "correct_index": value.correct_index,
                 "rationale": value.rationale,
                 "review": self._jsonable(value.review),
@@ -276,6 +331,92 @@ class CoreLoop:
         if isinstance(value, list):
             return [self._jsonable(item) for item in value]
         return value
+
+    def _verify_mcq_quality(
+        self,
+        state: CoreLoopState,
+        mcq: MCQ,
+        accepted: list[MCQ],
+        existing_questions: list[str],
+    ) -> bool:
+        if self._is_too_similar_to_any(
+            mcq.question,
+            [item.question for item in accepted] + existing_questions,
+        ):
+            return False
+        return self.verifier.verify_mcq(state["topic"], state["overview"], mcq)
+
+    def _generate_quiz(
+        self,
+        topic: str,
+        overview: str,
+        count: int,
+        *,
+        avoid_questions: list[str] | None = None,
+    ) -> list[MCQ]:
+        generate_quiz = self.generator.generate_quiz
+        params = signature(generate_quiz).parameters
+        accepts_avoid_questions = (
+            "avoid_questions" in params
+            or any(param.kind == Parameter.VAR_KEYWORD for param in params.values())
+        )
+        if accepts_avoid_questions:
+            return generate_quiz(
+                topic,
+                overview,
+                count,
+                avoid_questions=avoid_questions or [],
+            )
+        return generate_quiz(topic, overview, count)
+
+    def _is_too_similar_to_any(self, question: str, candidates: list[str]) -> bool:
+        normalized = self._normalize_question_text(question)
+        question_terms = self._question_terms(question)
+        for candidate in candidates:
+            candidate_normalized = self._normalize_question_text(candidate)
+            if normalized == candidate_normalized:
+                return True
+            if SequenceMatcher(None, normalized, candidate_normalized).ratio() >= 0.88:
+                return True
+
+            candidate_terms = self._question_terms(candidate)
+            if not question_terms or not candidate_terms:
+                continue
+            overlap = len(question_terms & candidate_terms) / len(question_terms | candidate_terms)
+            if overlap >= 0.72:
+                return True
+        return False
+
+    def _normalize_question_text(self, text: str) -> str:
+        return " ".join(_WORD_RE.findall(text.lower()))
+
+    def _question_terms(self, text: str) -> set[str]:
+        return {
+            word
+            for word in _WORD_RE.findall(text.lower())
+            if len(word) > 2 and word not in _STOP_WORDS
+        }
+
+    def _normalize_choice_indices(self, value: Any) -> list[int]:
+        if isinstance(value, bool):
+            raise ValueError("choice_indices must contain integers from 0 to 3")
+        if isinstance(value, int):
+            indices = [value]
+        elif isinstance(value, list):
+            indices = value
+        else:
+            raise ValueError("choice_indices must be a non-empty array of integers from 0 to 3")
+
+        if not indices:
+            raise ValueError("choice_indices must not be empty")
+        normalized: list[int] = []
+        for index in indices:
+            if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index <= 3:
+                raise ValueError("choice_indices must contain integers from 0 to 3")
+            if index in normalized:
+                raise ValueError("choice_indices must not contain duplicates")
+            normalized.append(index)
+        return sorted(normalized)
 
     def start_topic(
         self, conversation_id: int, topic: str, quiz_count: int = 3
@@ -333,20 +474,22 @@ class CoreLoop:
         ]
 
     def answer(
-        self, conversation_id: int, asked: AskedQuestion, choice_index: int
+        self, conversation_id: int, asked: AskedQuestion, choice_indices: int | list[int]
     ) -> tuple[bool, str]:
-        result = self.answer_item(conversation_id, asked.item_id, choice_index)
+        result = self.answer_item(conversation_id, asked.item_id, choice_indices)
         return result.is_correct, result.rationale
 
     def answer_item(
-        self, conversation_id: int, item_id: int, choice_index: int
+        self, conversation_id: int, item_id: int, choice_indices: int | list[int]
     ) -> AnswerResult:
+        normalized_choice_indices = self._normalize_choice_indices(choice_indices)
         state = self.graph.invoke(
             {
                 "operation": "answer",
                 "conversation_id": conversation_id,
                 "item_id": item_id,
-                "choice_index": choice_index,
+                "choice_indices": normalized_choice_indices,
+                "choice_index": normalized_choice_indices[0],
             }
         )
         return state["result"]

@@ -90,13 +90,15 @@ class StartTopicResponse(BaseModel):
 
 class AnswerRequest(BaseModel):
     item_id: int
-    choice_index: int
+    choice_index: int | None = None
+    choice_indices: list[int] | None = None
 
 
 class AnswerResponse(BaseModel):
     item_id: int
     is_correct: bool
     correct_index: int
+    correct_indices: list[int]
     rationale: str
     review: QuestionOut | None = None
 
@@ -219,14 +221,18 @@ async def start_topic(conversation_id: int, body: StartTopicRequest) -> StartTop
 @app.post("/conversations/{conversation_id}/answer", response_model=AnswerResponse)
 async def answer(conversation_id: int, body: AnswerRequest) -> AnswerResponse:
     _get_conversation_or_404(conversation_id)
+    choice_indices = body.choice_indices
+    if choice_indices is None:
+        choice_indices = [body.choice_index] if body.choice_index is not None else []
     try:
-        result = _loop.answer_item(conversation_id, body.item_id, body.choice_index)
+        result = _loop.answer_item(conversation_id, body.item_id, choice_indices)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return AnswerResponse(
         item_id=result.item_id,
         is_correct=result.is_correct,
         correct_index=result.correct_index,
+        correct_indices=result.correct_indices,
         rationale=result.rationale,
         review=_question_out(result.review) if result.review else None,
     )

@@ -20,7 +20,7 @@ class QuizStore:
         self._init_schema()
 
     def _detect_old_schema(self) -> None:
-        """Drop DB if the old singleton sessions schema is detected."""
+        """Drop DB if stale local-only schemas are detected."""
         if not self.path.exists():
             return
         try:
@@ -34,6 +34,16 @@ class QuizStore:
             conn.close()
             if "sessions" in tables and "conversations" not in tables:
                 self.path.unlink()
+                return
+            if "quiz_items" in tables:
+                conn = sqlite3.connect(self.path)
+                columns = {
+                    row[1]
+                    for row in conn.execute("PRAGMA table_info(quiz_items)")
+                }
+                conn.close()
+                if "answer_indices_json" not in columns:
+                    self.path.unlink()
         except Exception:
             self.path.unlink(missing_ok=True)
 
@@ -60,6 +70,7 @@ class QuizStore:
                 question TEXT NOT NULL,
                 choices_json TEXT NOT NULL,
                 answer_index INTEGER NOT NULL,
+                answer_indices_json TEXT NOT NULL,
                 rationale TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'active',
                 priority INTEGER NOT NULL DEFAULT 0,
@@ -157,9 +168,9 @@ class QuizStore:
             """
             INSERT INTO quiz_items (
                 conversation_id, topic, question, choices_json,
-                answer_index, rationale, priority, cooldown
+                answer_index, answer_indices_json, rationale, priority, cooldown
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 conversation_id,
@@ -167,6 +178,7 @@ class QuizStore:
                 mcq.question,
                 json.dumps(mcq.choices, ensure_ascii=False),
                 mcq.answer_index,
+                json.dumps(mcq.answer_indices, ensure_ascii=False),
                 mcq.rationale,
                 priority,
                 cooldown,
@@ -199,6 +211,30 @@ class QuizStore:
             (conversation_id,),
         ).fetchall()
         return [self._row_to_review_item(row) for row in rows]
+
+    def list_quiz_questions(
+        self, conversation_id: int, topic: str | None = None
+    ) -> list[str]:
+        """Question text already generated in this conversation."""
+        if topic is None:
+            rows = self.conn.execute(
+                """
+                SELECT question FROM quiz_items
+                WHERE conversation_id = ?
+                ORDER BY id ASC
+                """,
+                (conversation_id,),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                """
+                SELECT question FROM quiz_items
+                WHERE conversation_id = ? AND topic = ?
+                ORDER BY id ASC
+                """,
+                (conversation_id, topic),
+            ).fetchall()
+        return [row["question"] for row in rows]
 
     def deactivate_active_items(self, conversation_id: int) -> None:
         """Retire the current active batch when focus topic changes."""
@@ -361,7 +397,7 @@ class QuizStore:
             {
                 "question": row["question"],
                 "choices": json.loads(row["choices_json"]),
-                "answer_index": row["answer_index"],
+                "answer_indices": json.loads(row["answer_indices_json"]),
                 "rationale": row["rationale"],
             }
         )

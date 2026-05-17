@@ -29,7 +29,7 @@ If that runs offline on Gemma 4, the PoC is done.
 
 - [x] uv-runnable smoke test (already landed: [scripts/test_gemma4.py](../scripts/test_gemma4.py)).
 - [x] Pick variant + quantization that fits target hardware. Freeze it.
-- [x] Prompt that returns an MCQ as **strict JSON** (`{question, choices[4], answer_index, rationale}`).
+- [x] Prompt that returns an MCQ as **strict JSON** (`{question, choices[4], answer_indices, rationale}`).
 - [x] Parse + validate JSON. Retry once on parse failure.
 
 **Done when:** one shell command emits a valid MCQ JSON about a user-supplied topic.
@@ -60,7 +60,7 @@ UI (single-conversation shell):
 
 Graph + nodes:
 - [x] Migrate M1's loop to **LangGraph**. Nodes: `overview`, `quiz_gen`, `verify`, `safety`, `grade`, `review_inject`. Shared state object replaces the ad-hoc dict from M1.
-- [ ] Verification node: re-prompt Gemma to check `answer_index` is consistent with `question + choices`. Drop items that fail.
+- [ ] Verification node: re-prompt Gemma to check `answer_indices` are consistent with `question + choices`. Drop items that fail.
 - [ ] Safety node: a single classifier prompt that rejects unsafe topics/questions before they reach the user.
 - [ ] Conditional edges: failed verify → retry once, then drop; failed safety → short-circuit to a polite refusal.
 - [x] Logging: every node's input/output to a JSONL file for debugging.
@@ -116,6 +116,8 @@ UI completion:
 - [x] Cross-topic review labelling: review cards include a source-topic tag using the quiz item's originating topic.
 - [x] Optional real-model integration test added behind `RUN_REAL_MODEL_TEST=1`.
 - [x] Real-model integration test passed on local CPU; results recorded in `docs/TEST_RESULTS_M3.md`.
+- [x] Multi-select answer support: questions can have one or more correct choices, and grading compares selected answer sets.
+- [x] Duplicate-question filter: near-duplicate questions in the same topic are rejected during verification and retried once.
 
 **Remaining before M3 is done:**
 - [ ] **Target GPU latency run**: execute the optional `RUN_REAL_MODEL_TEST=1` test on the intended demo GPU and record latency findings.
