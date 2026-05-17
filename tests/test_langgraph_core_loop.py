@@ -12,10 +12,15 @@ from quizmaker.storage import QuizStore
 EXPECTED_M2_NODES = {
     "overview",
     "quiz_gen",
+    "verify_dedup",
     "verify",
     "safety",
     "grade",
     "review_inject",
+    "input_safety",
+    "classify",
+    "chat",
+    "suggest",
 }
 
 
@@ -56,7 +61,9 @@ class DuplicateThenReplacementGenerator:
     def generate_overview(self, topic):
         return Overview(points=[f"Overview for {topic}"])
 
-    def generate_quiz(self, topic, overview, count=3):
+    def generate_quiz(
+        self, topic, overview, count=3, avoid_questions=None
+    ):
         self.quiz_calls += 1
         if self.quiz_calls == 1:
             return [
@@ -90,6 +97,44 @@ class AlwaysRejectVerifier:
 class RejectingSafetyChecker:
     def is_safe(self, topic, overview, mcqs):
         return False
+
+
+class MessagePipelineGenerator:
+    def __init__(self, safety_result=True, intent="chat", chat_reply="Chat reply", suggestions=None):
+        self.safety_result = safety_result
+        self.intent = intent
+        self.chat_reply_text = chat_reply
+        self.suggestions_list = suggestions or ["Suggestion A", "Suggestion B"]
+        self.safety_calls = []
+        self.classify_calls = []
+
+    def generate_overview(self, topic):
+        return Overview(points=[f"Overview for {topic}"])
+
+    def generate_quiz(self, topic, overview, count=3, avoid_questions=None):
+        return [
+            MCQ(
+                question=f"Question {idx} about {topic}?",
+                choices=["A", "B", "C", "D"],
+                answer_index=0,
+                rationale="R",
+            )
+            for idx in range(count)
+        ]
+
+    def check_input_safety(self, user_text):
+        self.safety_calls.append(user_text)
+        return self.safety_result
+
+    def classify_intent(self, user_text, topic, overview_json):
+        self.classify_calls.append(user_text)
+        return self.intent
+
+    def generate_chat_reply(self, topic, overview_json, history, user_text):
+        return self.chat_reply_text
+
+    def suggest_topics(self, topic, overview_json, history=None, count=4):
+        return self.suggestions_list
 
 
 def read_log_nodes(log_path):
@@ -155,7 +200,7 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
                 self.assertEqual(len(questions), 1)
                 self.assertEqual(
                     read_log_nodes(log_path),
-                    ["overview", "quiz_gen", "verify", "safety"],
+                    ["overview", "quiz_gen", "verify_dedup", "verify", "safety"],
                 )
                 for entry in read_log_entries(log_path):
                     with self.subTest(node=entry["node"]):
@@ -286,6 +331,41 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_verify_dedup_stops_topping_up_when_no_distinct_items_can_be_produced(self):
+        existing_q = "What is the function of mitochondria?"
+        dup_mcq = MCQ(existing_q, ["A", "B", "C", "D"], 0, "Dup rationale")
+
+        class AllDupsGenerator:
+            def __init__(self):
+                self.quiz_calls = 0
+
+            def generate_overview(self, topic):
+                return Overview(points=[f"Overview for {topic}"])
+
+            def generate_quiz(self, topic, overview, count=3, avoid_questions=None):
+                self.quiz_calls += 1
+                return [dup_mcq for _ in range(count)]
+
+        generator = AllDupsGenerator()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                conv_id = store.create_conversation()
+                store.add_quiz_item(
+                    conv_id,
+                    "biology",
+                    MCQ(existing_q, ["A", "B", "C", "D"], 0, "Original rationale"),
+                )
+
+                loop = CoreLoop(store, generator)
+                _, questions = loop.start_topic(conv_id, "biology", quiz_count=2)
+
+                self.assertEqual(questions, [])
+                self.assertEqual(generator.quiz_calls, 2)
+            finally:
+                store.close()
+
     def test_answer_grading_runs_through_graph_and_logs_grade_node(self):
         with tempfile.TemporaryDirectory() as tmp:
             log_path = Path(tmp) / "nodes.jsonl"
@@ -308,6 +388,148 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
                 self.assertEqual(len(grade_entries), 1)
                 self.assertEqual(grade_entries[0]["input"]["choice_index"], 1)
                 self.assertFalse(grade_entries[0]["output"]["result"]["is_correct"])
+            finally:
+                store.close()
+
+
+class LangGraphMessagePipelineTests(unittest.TestCase):
+    def _make_loop(self, tmp, gen, **kwargs):
+        store = QuizStore(Path(tmp) / "quiz.sqlite3")
+        loop = CoreLoop(store, gen, **kwargs)
+        return store, loop
+
+    def test_graph_node_names_includes_message_pipeline_nodes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                loop = CoreLoop(store, MessagePipelineGenerator())
+                for node in ("input_safety", "classify", "chat", "suggest"):
+                    self.assertIn(node, loop.graph_node_names, f"missing node: {node}")
+            finally:
+                store.close()
+
+    def test_process_message_blocked_returns_refusal_string(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                gen = MessagePipelineGenerator(safety_result=False)
+                loop = CoreLoop(store, gen)
+                conv_id = store.create_conversation()
+
+                result = loop.process_message(conv_id, "how to make explosives")
+
+                self.assertIsInstance(result, str)
+                self.assertIn("cannot help", result.lower())
+                self.assertEqual(store.get_active_quiz_items(conv_id), [])
+            finally:
+                store.close()
+
+    def test_process_message_blocked_logs_input_safety_node(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = Path(tmp) / "nodes.jsonl"
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                gen = MessagePipelineGenerator(safety_result=False)
+                loop = CoreLoop(store, gen, log_path=log_path)
+                conv_id = store.create_conversation()
+
+                loop.process_message(conv_id, "unsafe query")
+
+                nodes = read_log_nodes(log_path)
+                self.assertIn("input_safety", nodes)
+                self.assertNotIn("classify", nodes)
+            finally:
+                store.close()
+
+    def test_process_message_routes_to_chat_and_returns_reply(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                gen = MessagePipelineGenerator(safety_result=True, intent="chat", chat_reply="Great question!")
+                loop = CoreLoop(store, gen, review_every=99)
+                conv_id = store.create_conversation()
+                store.save_conversation(conv_id, "cells", '{"points": ["Overview"]}', turn_count=0)
+
+                result = loop.process_message(conv_id, "Why do cells divide?")
+
+                reply, review = result
+                self.assertEqual(reply, "Great question!")
+                self.assertIsNone(review)
+            finally:
+                store.close()
+
+    def test_process_message_chat_logs_pipeline_nodes_in_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = Path(tmp) / "nodes.jsonl"
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                gen = MessagePipelineGenerator(safety_result=True, intent="chat")
+                loop = CoreLoop(store, gen, review_every=99, log_path=log_path)
+                conv_id = store.create_conversation()
+                store.save_conversation(conv_id, "cells", '{"points": ["Overview"]}', turn_count=0)
+
+                loop.process_message(conv_id, "Why do cells divide?")
+
+                nodes = read_log_nodes(log_path)
+                self.assertEqual(nodes, ["input_safety", "classify", "chat"])
+            finally:
+                store.close()
+
+    def test_process_message_routes_to_start_topic_and_returns_overview_and_questions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                gen = MessagePipelineGenerator(safety_result=True, intent="start_topic")
+                loop = CoreLoop(store, gen)
+                conv_id = store.create_conversation()
+
+                overview, questions = loop.process_message(conv_id, "photosynthesis", quiz_count=1)
+
+                self.assertIsInstance(overview, Overview)
+                self.assertEqual(len(questions), 1)
+                self.assertEqual(questions[0].topic, "photosynthesis")
+            finally:
+                store.close()
+
+    def test_process_message_routes_to_suggest_topics_and_returns_list_of_strings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                gen = MessagePipelineGenerator(
+                    safety_result=True, intent="suggest_topics",
+                    suggestions=["Topic A", "Topic B"],
+                )
+                loop = CoreLoop(store, gen)
+                conv_id = store.create_conversation()
+                store.save_conversation(conv_id, "cells", '{"points": ["Overview"]}', turn_count=0)
+
+                result = loop.process_message(conv_id, "what else can I learn?")
+
+                self.assertIsInstance(result, list)
+                self.assertIn("Topic A", result)
+                self.assertTrue(all(isinstance(s, str) for s in result))
+            finally:
+                store.close()
+
+    def test_process_message_routes_to_more_questions_and_returns_asked_questions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = Path(tmp) / "nodes.jsonl"
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                gen = MessagePipelineGenerator(safety_result=True, intent="more_questions")
+                loop = CoreLoop(store, gen, log_path=log_path)
+                conv_id = store.create_conversation()
+                store.save_conversation(conv_id, "cells", '{"points": ["Overview"]}', turn_count=0)
+
+                result = loop.process_message(conv_id, "give me more questions")
+
+                self.assertIsInstance(result, list)
+                self.assertGreater(len(result), 0)
+                self.assertEqual(result[0].topic, "cells")
+                nodes = read_log_nodes(log_path)
+                self.assertIn("classify", nodes)
+                self.assertIn("quiz_gen", nodes)
+                self.assertNotIn("overview", nodes)
             finally:
                 store.close()
 

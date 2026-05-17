@@ -188,7 +188,10 @@
     }
     .suggestion-chip:hover { background: #eef1ff; border-color: #1a1a2e; }
 
-    .spinner-row { align-self: flex-start; padding: 6px 2px; }
+    .spinner-row {
+      align-self: flex-start; padding: 6px 2px;
+      display: flex; align-items: center; gap: 10px;
+    }
     .spinner {
       width: 20px; height: 20px;
       border: 3px solid #e0e0e0;
@@ -196,6 +199,7 @@
       border-radius: 50%;
       animation: spin 0.7s linear infinite;
     }
+    .spinner-label { color: #666; font-size: 14px; font-style: italic; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
     /* ── Input area (Claude-style) ────────────────────────────────────────── */
@@ -746,12 +750,7 @@
       const chip = document.createElement('button');
       chip.className = 'suggestion-chip';
       chip.textContent = s;
-      chip.onclick = () => {
-        mainInput.value = s;
-        mainInput.style.height = 'auto';
-        mainInput.style.height = mainInput.scrollHeight + 'px';
-        mainInput.focus();
-      };
+      chip.onclick = () => doStartTopic(s);
       block.appendChild(chip);
     }
     thread.appendChild(block);
@@ -769,9 +768,23 @@
   function showSpinner() {
     const el = document.createElement('div');
     el.className = 'spinner-row';
-    el.innerHTML = '<div class="spinner"></div>';
+    el.innerHTML = '<div class="spinner"></div><span class="spinner-label">Thinking...</span>';
     thread.appendChild(el);
     thread.scrollTop = thread.scrollHeight;
+    const label = el.querySelector('.spinner-label');
+    const phases = [
+      'Checking safety...',
+      'Classifying intent...',
+      'Generating content...',
+      'Verifying...',
+      'Almost done...',
+    ];
+    let i = 0;
+    const tick = setInterval(() => {
+      if (i < phases.length) { label.textContent = phases[i++]; }
+    }, 2000);
+    const origRemove = el.remove.bind(el);
+    el.remove = () => { clearInterval(tick); origRemove(); };
     return el;
   }
 
@@ -823,10 +836,12 @@
     qEl.textContent = q.question;
     card.appendChild(qEl);
 
-    const hint = document.createElement('div');
-    hint.className = 'q-hint';
-    hint.textContent = 'Select one or more.';
-    card.appendChild(hint);
+    if (q.multi_correct) {
+      const hint = document.createElement('div');
+      hint.className = 'q-hint';
+      hint.textContent = 'Select one or more.';
+      card.appendChild(hint);
+    }
 
     const choicesEl = document.createElement('div');
     choicesEl.className = 'q-choices';
@@ -837,20 +852,35 @@
       btn.textContent = `${letter}. ${q.choices[i]}`;
       btn.onclick = () => {
         if (card.classList.contains('answered')) return;
-        if (selected.has(i)) { selected.delete(i); btn.classList.remove('selected'); }
-        else                 { selected.add(i);    btn.classList.add('selected'); }
-        submit.disabled = selected.size === 0;
+        if (q.multi_correct) {
+          if (selected.has(i)) {
+            selected.delete(i);
+            btn.classList.remove('selected');
+          } else {
+            selected.add(i);
+            btn.classList.add('selected');
+          }
+          submit.disabled = selected.size === 0;
+        } else {
+          selected.clear();
+          selected.add(i);
+          btn.classList.add('selected');
+          submitAnswer(q.item_id, [i], card);
+        }
       };
       choicesEl.appendChild(btn);
     });
     card.appendChild(choicesEl);
 
-    const submit = document.createElement('button');
-    submit.className = 'answer-submit';
-    submit.textContent = 'Submit';
-    submit.disabled = true;
-    submit.onclick = () => submitAnswer(q.item_id, Array.from(selected), card);
-    card.appendChild(submit);
+    let submit = null;
+    if (q.multi_correct) {
+      submit = document.createElement('button');
+      submit.className = 'answer-submit';
+      submit.textContent = 'Submit';
+      submit.disabled = true;
+      submit.onclick = () => submitAnswer(q.item_id, Array.from(selected), card);
+      card.appendChild(submit);
+    }
 
     const target = section ? section.querySelector('.topic-questions') : activeQs;
     target.appendChild(card);
@@ -886,10 +916,37 @@
         updateSidebarTitle(activeConvId, conv.title);
         pendingReviews = [];
         hasSuggested = false;
+      } else if (data.suggestions) {
+        appendSuggestions(data.suggestions);
+      } else if (data.questions) {
+        renderPanelQuestions(data.questions);
       } else if (data.reply != null) {
         appendBubble('assistant', data.reply);
         if (data.review) appendPanelQuestion(data.review);
       }
+    } catch (e) {
+      spinner.remove();
+      appendSystemMsg(`Error: ${e.message}`);
+    }
+    setInputsEnabled(true);
+    mainInput.focus();
+  }
+
+  async function doStartTopic(topic) {
+    if (!activeConvId) return;
+    setInputsEnabled(false);
+    appendBubble('user', topic);
+    const spinner = showSpinner();
+    try {
+      const data = await post(`/conversations/${activeConvId}/start-topic`, { topic, quiz_count: 3 });
+      spinner.remove();
+      appendOverview({ ...data.overview, topic });
+      openTopicSection(topic);
+      renderPanelQuestions(data.questions || []);
+      const conv = await get(`/conversations/${activeConvId}`);
+      updateSidebarTitle(activeConvId, conv.title);
+      pendingReviews = [];
+      hasSuggested = false;
     } catch (e) {
       spinner.remove();
       appendSystemMsg(`Error: ${e.message}`);

@@ -212,6 +212,10 @@ class QuizStore:
         ).fetchall()
         return [self._row_to_review_item(row) for row in rows]
 
+    def get_question_texts(self, conversation_id: int) -> list[str]:
+        """All question texts in this conversation, for dedup lookup."""
+        return self.list_quiz_questions(conversation_id)
+
     def list_quiz_questions(
         self, conversation_id: int, topic: str | None = None
     ) -> list[str]:

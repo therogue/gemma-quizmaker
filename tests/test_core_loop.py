@@ -12,7 +12,7 @@ class FakeGenerator:
     def generate_overview(self, topic):
         return Overview(points=[f"Overview for {topic}"])
 
-    def generate_quiz(self, topic, overview, count=3):
+    def generate_quiz(self, topic, overview, count=3, avoid_questions=None):
         return [
             MCQ(
                 question=f"Question {idx} about {topic}?",
@@ -34,7 +34,7 @@ class SuggestingGenerator(FakeGenerator):
 
 
 class MultiAnswerGenerator(FakeGenerator):
-    def generate_quiz(self, topic, overview, count=3):
+    def generate_quiz(self, topic, overview, count=3, avoid_questions=None):
         return [
             MCQ(
                 question=f"Which statements about {topic} are true?",
@@ -306,8 +306,40 @@ class CoreLoopTests(unittest.TestCase):
                 ).fetchall()
                 self.assertEqual(
                     [row["event"] for row in rows],
-                    ["graph.overview", "graph.quiz_gen", "graph.verify", "graph.safety"],
+                    [
+                        "graph.overview",
+                        "graph.quiz_gen",
+                        "graph.verify_dedup",
+                        "graph.verify",
+                        "graph.safety",
+                    ],
                 )
+            finally:
+                store.close()
+
+    def test_get_question_texts_returns_questions_for_one_conversation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                conv_a = store.create_conversation()
+                conv_b = store.create_conversation()
+                store.add_quiz_item(
+                    conv_a, "biology",
+                    MCQ("Question A1?", ["a", "b", "c", "d"], 0, "R"),
+                )
+                store.add_quiz_item(
+                    conv_a, "biology",
+                    MCQ("Question A2?", ["a", "b", "c", "d"], 0, "R"),
+                )
+                store.add_quiz_item(
+                    conv_b, "biology",
+                    MCQ("Question B1?", ["a", "b", "c", "d"], 0, "R"),
+                )
+
+                texts_a = store.get_question_texts(conv_a)
+
+                self.assertEqual(sorted(texts_a), ["Question A1?", "Question A2?"])
+                self.assertNotIn("Question B1?", texts_a)
             finally:
                 store.close()
 
@@ -333,6 +365,133 @@ class CoreLoopTests(unittest.TestCase):
                 # Items from conv_a must not be accessible via conv_b
                 self.assertIsNone(store.get_quiz_item(questions_a[0].item_id, conv_b))
                 self.assertIsNotNone(store.get_quiz_item(questions_a[0].item_id, conv_a))
+            finally:
+                store.close()
+
+
+class MessagePipelineFakeGenerator(FakeGenerator):
+    def __init__(self, safety_result=True, intent="chat", chat_reply="Chat reply", suggestions=None):
+        self.safety_result = safety_result
+        self.intent = intent
+        self.chat_reply_text = chat_reply
+        self.suggestions_list = suggestions or ["Topic A"]
+
+    def check_input_safety(self, user_text):
+        return self.safety_result
+
+    def classify_intent(self, user_text, topic, overview_json):
+        return self.intent
+
+    def generate_chat_reply(self, topic, overview_json, history, user_text):
+        return self.chat_reply_text
+
+    def suggest_topics(self, topic, overview_json, history=None, count=4):
+        return self.suggestions_list
+
+
+class MessagePipelineIntegrationTests(unittest.TestCase):
+    def test_process_message_chat_branch_persists_user_and_assistant_messages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                gen = MessagePipelineFakeGenerator(safety_result=True, intent="chat", chat_reply="Great question!")
+                loop = CoreLoop(store, gen, review_every=99)
+                conv_id = store.create_conversation()
+                store.save_conversation(conv_id, "cells", '{"points": ["Overview"]}', turn_count=0)
+
+                reply, review = loop.process_message(conv_id, "Why do cells divide?")
+
+                self.assertEqual(reply, "Great question!")
+                self.assertIsNone(review)
+                messages = store.get_messages(conv_id)
+                chat_messages = [m for m in messages if m["kind"] == "chat"]
+                self.assertEqual(len(chat_messages), 2)
+                user_msg = next(m for m in chat_messages if m["role"] == "user")
+                self.assertIn("Why do cells divide?", json.loads(user_msg["content_json"])["text"])
+            finally:
+                store.close()
+
+    def test_process_message_start_topic_branch_creates_quiz_items_and_sets_topic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                gen = MessagePipelineFakeGenerator(safety_result=True, intent="start_topic")
+                loop = CoreLoop(store, gen, review_every=99)
+                conv_id = store.create_conversation()
+
+                overview, questions = loop.process_message(conv_id, "photosynthesis", quiz_count=1)
+
+                self.assertIsInstance(overview, Overview)
+                self.assertEqual(len(questions), 1)
+                active = store.get_active_quiz_items(conv_id)
+                self.assertEqual(len(active), 1)
+                conv = store.get_conversation(conv_id)
+                self.assertEqual(conv["topic"], "photosynthesis")
+            finally:
+                store.close()
+
+    def test_process_message_blocked_stores_no_messages_and_returns_refusal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                gen = MessagePipelineFakeGenerator(safety_result=False)
+                loop = CoreLoop(store, gen, review_every=99)
+                conv_id = store.create_conversation()
+
+                result = loop.process_message(conv_id, "unsafe query")
+
+                self.assertIsInstance(result, str)
+                self.assertIn("cannot help", result.lower())
+                self.assertEqual(store.get_messages(conv_id), [])
+            finally:
+                store.close()
+
+    def test_process_message_raises_value_error_on_empty_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                loop = CoreLoop(store, MessagePipelineFakeGenerator(), review_every=99)
+                conv_id = store.create_conversation()
+
+                with self.assertRaises(ValueError):
+                    loop.process_message(conv_id, "")
+                with self.assertRaises(ValueError):
+                    loop.process_message(conv_id, "   ")
+            finally:
+                store.close()
+
+    def test_process_message_more_questions_intent_falls_back_to_start_topic_when_no_topic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                gen = MessagePipelineFakeGenerator(safety_result=True, intent="more_questions")
+                loop = CoreLoop(store, gen, review_every=99)
+                conv_id = store.create_conversation()
+
+                result = loop.process_message(conv_id, "photosynthesis")
+
+                self.assertIsInstance(result, tuple)
+                overview, questions = result
+                self.assertIsInstance(overview, Overview)
+                self.assertGreater(len(questions), 0)
+                self.assertEqual(questions[0].topic, "photosynthesis")
+            finally:
+                store.close()
+
+    def test_process_message_suggest_topics_intent_falls_back_to_start_topic_when_no_topic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                gen = MessagePipelineFakeGenerator(safety_result=True, intent="suggest_topics")
+                loop = CoreLoop(store, gen, review_every=99)
+                conv_id = store.create_conversation()
+
+                result = loop.process_message(conv_id, "neural networks")
+
+                self.assertIsInstance(result, tuple)
+                overview, questions = result
+                self.assertIsInstance(overview, Overview)
+                self.assertEqual(questions[0].topic, "neural networks")
             finally:
                 store.close()
 
