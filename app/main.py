@@ -112,6 +112,19 @@ class ChatResponse(BaseModel):
     review: QuestionOut | None
 
 
+class ActionRequest(BaseModel):
+    action: str
+    count: int = 3
+
+
+class MoreQuestionsResponse(BaseModel):
+    questions: list[QuestionOut]
+
+
+class SuggestTopicsResponse(BaseModel):
+    suggestions: list[str]
+
+
 # Fix forward references after all models are defined
 ConversationDetailOut.model_rebuild()
 
@@ -231,3 +244,21 @@ async def chat(conversation_id: int, body: ChatRequest) -> ChatResponse:
         reply=reply,
         review=_question_out(review) if review else None,
     )
+
+
+@app.post("/conversations/{conversation_id}/actions")
+async def actions(conversation_id: int, body: ActionRequest):
+    _get_conversation_or_404(conversation_id)
+
+    if body.action == "more_questions":
+        try:
+            questions = _loop.more_questions(conversation_id, count=body.count)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return MoreQuestionsResponse(questions=[_question_out(q) for q in questions])
+
+    if body.action == "suggest_topics":
+        suggestions = _loop.suggest_topics(conversation_id, use_history=True, count=body.count)
+        return SuggestTopicsResponse(suggestions=suggestions)
+
+    raise HTTPException(status_code=422, detail=f"unknown action: {body.action!r}")

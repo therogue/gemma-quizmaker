@@ -114,6 +114,7 @@ class CoreLoop:
             self._route_operation,
             {
                 "start_topic": "overview",
+                "more_questions": "quiz_gen",
                 "answer": "grade",
                 "next_turn": "review_inject",
             },
@@ -315,6 +316,16 @@ class CoreLoop:
                 quiz_item_id=item_id,
             )
 
+        # Auto-generate wiki-style topic suggestions from topic + overview only
+        suggestions = self.suggest_topics(conversation_id, use_history=False)
+        if suggestions:
+            self.store.add_message(
+                conversation_id,
+                "assistant",
+                "suggestions",
+                json.dumps({"suggestions": suggestions}),
+            )
+
         return overview, [
             AskedQuestion(item_id=item_id, mcq=mcq, is_review=False)
             for item_id, mcq in zip(item_ids, mcqs)
@@ -347,6 +358,56 @@ class CoreLoop:
             }
         )
         return state["review"]
+
+    def more_questions(
+        self, conversation_id: int, count: int = 3
+    ) -> list[AskedQuestion]:
+        """Generate additional quiz items for the current focus topic."""
+        conv = self.store.get_conversation(conversation_id)
+        topic = conv["topic"]
+        overview_json = conv["overview_json"]
+        if not topic:
+            raise ValueError("conversation has no active topic")
+
+        state = self.graph.invoke(
+            {
+                "operation": "more_questions",
+                "conversation_id": conversation_id,
+                "topic": topic,
+                "overview": overview_json,
+                "quiz_count": count,
+            }
+        )
+        mcqs = state["mcqs"]
+        item_ids = self.store.add_quiz_items(conversation_id, topic, mcqs)
+        for item_id, mcq in zip(item_ids, mcqs):
+            self.store.add_message(
+                conversation_id,
+                "assistant",
+                "question",
+                json.dumps(mcq.to_dict()),
+                quiz_item_id=item_id,
+            )
+        return [
+            AskedQuestion(item_id=item_id, mcq=mcq, is_review=False)
+            for item_id, mcq in zip(item_ids, mcqs)
+        ]
+
+    def suggest_topics(
+        self, conversation_id: int, use_history: bool = True, count: int = 4
+    ) -> list[str]:
+        """Return related topic suggestions, optionally using conversation history.
+
+        Returns empty list if the generator doesn't support topic suggestion.
+        """
+        suggest_fn = getattr(self.generator, "suggest_topics", None)
+        if suggest_fn is None:
+            return []
+        conv = self.store.get_conversation(conversation_id)
+        history = (
+            self.store.get_messages(conversation_id, limit=20) if use_history else None
+        )
+        return suggest_fn(conv["topic"], conv["overview_json"], history=history, count=count)
 
     def chat(
         self, conversation_id: int, user_text: str

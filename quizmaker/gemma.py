@@ -198,3 +198,68 @@ class GemmaQuizGenerator:
         reply = run_inference(self.model, self.processor, messages, MAX_NEW_TOKENS)
         print(f"[chat] raw output: {reply!r}", file=sys.stderr)
         return reply.strip()
+
+    def suggest_topics(
+        self,
+        topic: str,
+        overview_json: str,
+        history: list[dict] | None = None,
+        count: int = 4,
+    ) -> list[str]:
+        """Return related topic suggestions. history is optional conversation context."""
+        overview_text = ""
+        if overview_json:
+            try:
+                overview_text = "\n".join(
+                    f"- {p}" for p in Overview.from_json(overview_json).points
+                )
+            except Exception:
+                pass
+
+        context = f"Topic: {topic}"
+        if overview_text:
+            context += f"\n\nOverview:\n{overview_text}"
+
+        if history:
+            chat_lines = []
+            for msg in history:
+                try:
+                    text = json.loads(msg["content_json"]).get("text", "")
+                except Exception:
+                    continue
+                if msg["kind"] == "chat" and text:
+                    prefix = "User" if msg["role"] == "user" else "Assistant"
+                    chat_lines.append(f"{prefix}: {text}")
+            if chat_lines:
+                context += "\n\nRecent conversation:\n" + "\n".join(chat_lines[-6:])
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a study assistant. Output ONLY a valid JSON object "
+                    "with no markdown, no comments, and no surrounding text."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"{context}\n\n"
+                    f"Suggest {count} related topics the student could explore next. "
+                    "Prefer specific sub-topics or closely related concepts over broad subjects. "
+                    "If there is conversation history, bias suggestions toward areas the student "
+                    "struggled with or asked about.\n\n"
+                    'Return a JSON object with exactly this field:\n'
+                    '  "suggestions": array of strings, each a short topic name (3-8 words max)'
+                ),
+            },
+        ]
+        raw = run_inference(self.model, self.processor, messages, MAX_NEW_TOKENS)
+        print(f"[suggest_topics] raw output: {raw!r}", file=sys.stderr)
+        try:
+            data = json.loads(extract_json_object(raw))
+            suggestions = data.get("suggestions", [])
+            return [str(s).strip() for s in suggestions if str(s).strip()][:count]
+        except Exception as err:
+            print(f"[suggest_topics] parse failed: {err}", file=sys.stderr)
+            return []
