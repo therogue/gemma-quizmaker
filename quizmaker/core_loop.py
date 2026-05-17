@@ -46,6 +46,7 @@ class AskedQuestion:
     item_id: int
     mcq: MCQ
     is_review: bool
+    topic: str
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,7 @@ class AnswerResult:
     is_correct: bool
     correct_index: int
     rationale: str
+    review: AskedQuestion | None = None
 
 
 class CoreLoopState(TypedDict, total=False):
@@ -196,14 +198,24 @@ class CoreLoop:
             conversation_id,
             "user",
             "answer",
-            json.dumps({"item_id": item.id, "choice_index": choice_index, "correct": is_correct}),
+            json.dumps(
+                {
+                    "item_id": item.id,
+                    "choice_index": choice_index,
+                    "correct": is_correct,
+                    "correct_index": item.mcq.answer_index,
+                    "rationale": item.mcq.rationale,
+                }
+            ),
         )
+        review = self._advance_turn(conversation_id, exclude_item_id=item.id)
         output: CoreLoopState = {
             "result": AnswerResult(
                 item_id=item.id,
                 is_correct=is_correct,
                 correct_index=item.mcq.answer_index,
                 rationale=item.mcq.rationale,
+                review=review,
             )
         }
         self._log_node("grade", state, output)
@@ -211,41 +223,28 @@ class CoreLoop:
 
     def _review_inject_node(self, state: CoreLoopState) -> CoreLoopState:
         conversation_id = state["conversation_id"]
-        conv = self.store.get_conversation(conversation_id)
-        turn_count = conv["turn_count"] + 1
-
-        self.store.decrement_cooldowns(conversation_id)
-        self.store.save_conversation(
-            conversation_id, conv["topic"], conv["overview_json"], turn_count
-        )
-
-        review: AskedQuestion | None = None
-        if turn_count % self.review_every == 0:
-            review_item = self.store.due_review_item(conversation_id)
-            if review_item is not None:
-                self.store.activate_for_review(review_item.id, conversation_id)
-                self.store.add_message(
-                    conversation_id,
-                    "assistant",
-                    "review",
-                    json.dumps({"item_id": review_item.id}),
-                    quiz_item_id=review_item.id,
-                )
-                review = self._to_asked(review_item)
-
+        review = self._advance_turn(conversation_id)
         output: CoreLoopState = {"review": review}
         self._log_node("review_inject", state, output)
         return output
 
     def _log_node(self, node: str, input_state: CoreLoopState, output_state: CoreLoopState) -> None:
-        if self.log_path is None:
-            return
-        self.log_path.parent.mkdir(parents=True, exist_ok=True)
         record = {
             "node": node,
             "input": self._jsonable(input_state),
             "output": self._jsonable(output_state),
         }
+        conversation_id = input_state.get("conversation_id")
+        if conversation_id is not None:
+            self.store.add_log(
+                f"graph.{node}",
+                json.dumps(record, sort_keys=True),
+                conversation_id=conversation_id,
+                level="debug",
+            )
+        if self.log_path is None:
+            return
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
         with self.log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, sort_keys=True) + "\n")
 
@@ -262,6 +261,7 @@ class CoreLoop:
                 "item_id": value.item_id,
                 "mcq": self._jsonable(value.mcq),
                 "is_review": value.is_review,
+                "topic": value.topic,
             }
         if isinstance(value, AnswerResult):
             return {
@@ -269,6 +269,7 @@ class CoreLoop:
                 "is_correct": value.is_correct,
                 "correct_index": value.correct_index,
                 "rationale": value.rationale,
+                "review": self._jsonable(value.review),
             }
         if isinstance(value, dict):
             return {key: self._jsonable(item) for key, item in value.items()}
@@ -305,7 +306,9 @@ class CoreLoop:
         if conv["title"] == "New conversation":
             self.store.set_conversation_title(conversation_id, topic)
 
-        self.store.save_conversation(conversation_id, topic, overview_json, turn_count=0)
+        self.store.save_conversation(
+            conversation_id, topic, overview_json, turn_count=conv["turn_count"]
+        )
         self.store.add_message(
             conversation_id, "user", "topic", json.dumps({"text": topic}),
         )
@@ -318,22 +321,14 @@ class CoreLoop:
                 conversation_id,
                 "assistant",
                 "question",
-                json.dumps(mcq.to_dict()),
+                json.dumps(self._question_message_payload(topic, mcq)),
                 quiz_item_id=item_id,
             )
 
-        # Auto-generate wiki-style topic suggestions from topic + overview only
-        suggestions = self.suggest_topics(conversation_id, use_history=False)
-        if suggestions:
-            self.store.add_message(
-                conversation_id,
-                "assistant",
-                "suggestions",
-                json.dumps({"suggestions": suggestions}),
-            )
+        self._advance_turn(conversation_id, inject_review=False)
 
         return overview, [
-            AskedQuestion(item_id=item_id, mcq=mcq, is_review=False)
+            AskedQuestion(item_id=item_id, mcq=mcq, is_review=False, topic=topic)
             for item_id, mcq in zip(item_ids, mcqs)
         ]
 
@@ -391,11 +386,11 @@ class CoreLoop:
                 conversation_id,
                 "assistant",
                 "question",
-                json.dumps(mcq.to_dict()),
+                json.dumps(self._question_message_payload(topic, mcq)),
                 quiz_item_id=item_id,
             )
         return [
-            AskedQuestion(item_id=item_id, mcq=mcq, is_review=False)
+            AskedQuestion(item_id=item_id, mcq=mcq, is_review=False, topic=topic)
             for item_id, mcq in zip(item_ids, mcqs)
         ]
 
@@ -440,28 +435,49 @@ class CoreLoop:
             conversation_id, "assistant", "chat", json.dumps({"text": reply})
         )
 
-        # Increment turn count and check for review injection
+        review = self._advance_turn(conversation_id)
+
+        return reply, review
+
+    def _advance_turn(
+        self,
+        conversation_id: int,
+        *,
+        exclude_item_id: int | None = None,
+        inject_review: bool = True,
+    ) -> AskedQuestion | None:
+        conv = self.store.get_conversation(conversation_id)
         turn_count = conv["turn_count"] + 1
-        self.store.decrement_cooldowns(conversation_id)
+        self.store.decrement_cooldowns(conversation_id, exclude_item_id=exclude_item_id)
         self.store.save_conversation(
             conversation_id, conv["topic"], conv["overview_json"], turn_count
         )
 
-        review: AskedQuestion | None = None
-        if turn_count % self.review_every == 0:
-            review_item = self.store.due_review_item(conversation_id)
-            if review_item is not None:
-                self.store.activate_for_review(review_item.id, conversation_id)
-                self.store.add_message(
-                    conversation_id,
-                    "assistant",
-                    "review",
-                    json.dumps({"item_id": review_item.id}),
-                    quiz_item_id=review_item.id,
-                )
-                review = self._to_asked(review_item)
+        if not inject_review or turn_count % self.review_every != 0:
+            return None
 
-        return reply, review
+        review_item = self.store.due_review_item(
+            conversation_id, exclude_item_id=exclude_item_id
+        )
+        if review_item is None:
+            return None
+
+        self.store.activate_for_review(review_item.id, conversation_id)
+        self.store.add_message(
+            conversation_id,
+            "assistant",
+            "review",
+            json.dumps({"item_id": review_item.id, "topic": review_item.topic}),
+            quiz_item_id=review_item.id,
+        )
+        return self._to_asked(review_item)
+
+    def _question_message_payload(self, topic: str, mcq: MCQ) -> dict[str, Any]:
+        return {
+            "topic": topic,
+            "question": mcq.question,
+            "choices": mcq.choices,
+        }
 
     def _to_asked(self, item: ReviewItem) -> AskedQuestion:
-        return AskedQuestion(item_id=item.id, mcq=item.mcq, is_review=True)
+        return AskedQuestion(item_id=item.id, mcq=item.mcq, is_review=True, topic=item.topic)

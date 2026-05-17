@@ -283,6 +283,19 @@
     }
     .q-card.review { border-left: 4px solid #f0a500; }
 
+    .q-source {
+      display: inline-block;
+      margin-bottom: 8px;
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: #fff4d6;
+      color: #7a5200;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
     .q-question {
       font-size: 0.87rem;
       font-weight: 600;
@@ -398,7 +411,7 @@
   const newConvBtn  = document.getElementById('new-conv-btn');
 
   let activeConvId = null;
-  let pendingTurns = 0;
+  let pendingReviews = [];
   let currentTopicSection = null; // <details> element for the active topic
 
   // ── API ────────────────────────────────────────────────────────────────────
@@ -468,7 +481,7 @@
     convList.prepend(el);
     clearThread('Start by entering a topic above.');
     clearPanel();
-    pendingTurns = 0;
+    pendingReviews = [];
     setInputsEnabled(true);
   });
 
@@ -476,7 +489,7 @@
 
   async function selectConversation(id) {
     activeConvId = id;
-    pendingTurns = 0;
+    pendingReviews = [];
     setSidebarActive(id);
     clearThread();
     clearPanel();
@@ -533,20 +546,27 @@
       } else if (msg.kind === 'question' && msg.quiz_item_id != null) {
         if (!section) { section = openTopicSection('Questions', false); sections.push(section); }
         const card = appendPanelQuestion(
-          { item_id: msg.quiz_item_id, is_review: reviewed.has(msg.quiz_item_id), question: c.question, choices: c.choices },
+          {
+            item_id: msg.quiz_item_id,
+            is_review: reviewed.has(msg.quiz_item_id),
+            topic: c.topic,
+            question: c.question,
+            choices: c.choices,
+          },
           section,
         );
         const ans = answers.get(msg.quiz_item_id);
         if (ans != null) {
+          const correctIndex = ans.correct_index ?? c.answer_index;
           card.querySelectorAll('.choice-btn').forEach((btn, i) => {
             btn.disabled = true;
             if (i === ans.choice_index && ans.correct) btn.classList.add('correct');
             else if (i === ans.choice_index)           btn.classList.add('wrong');
-            else if (i === c.answer_index)             btn.classList.add('revealed');
+            else if (i === correctIndex)                btn.classList.add('revealed');
           });
           const rat = document.createElement('div');
           rat.className = 'q-rationale' + (ans.correct ? '' : ' wrong');
-          rat.textContent = c.rationale || '';
+          rat.textContent = ans.rationale || c.rationale || '';
           card.appendChild(rat);
           card.classList.add('answered');
         }
@@ -708,6 +728,13 @@
     card.className = 'q-card' + (q.is_review ? ' review' : '');
     card.dataset.itemId = q.item_id;
 
+    if (q.is_review && q.topic) {
+      const source = document.createElement('div');
+      source.className = 'q-source';
+      source.textContent = `Review: ${q.topic}`;
+      card.appendChild(source);
+    }
+
     const qEl = document.createElement('div');
     qEl.className = 'q-question';
     qEl.textContent = q.question;
@@ -766,7 +793,7 @@
       const data = await post(`/conversations/${activeConvId}/start-topic`, { topic, quiz_count: 3 });
       spinner.remove();
       appendOverview(data.overview);
-      pendingTurns = 0;
+      pendingReviews = [];
       openTopicSection(topic);
       renderPanelQuestions(data.questions);
       const conv = await get(`/conversations/${activeConvId}`);
@@ -816,15 +843,8 @@
       rat.textContent = data.rationale;
       card.appendChild(rat);
       card.classList.add('answered');
-      // Batch turns: only advance when all current cards are answered
-      pendingTurns++;
-      if (!activeQs.querySelector('.q-card:not(.answered)')) {
-        for (let i = 0; i < pendingTurns; i++) {
-          const turn = await post(`/conversations/${activeConvId}/turn`).catch(() => null);
-          if (turn?.review) appendPanelQuestion(turn.review);
-        }
-        pendingTurns = 0;
-      }
+      if (data.review) pendingReviews.push(data.review);
+      flushPendingReviewsIfReady();
     } catch (e) {
       appendSystemMsg(`Error: ${e.message}`);
       card.querySelectorAll('.choice-btn').forEach(b => b.disabled = false);
@@ -840,6 +860,12 @@
       appendSystemMsg(`Error: ${e.message}`);
     }
     setInputsEnabled(true);
+  }
+
+  function flushPendingReviewsIfReady() {
+    if (activeQs.querySelector('.q-card:not(.answered)')) return;
+    for (const review of pendingReviews) appendPanelQuestion(review);
+    pendingReviews = [];
   }
 
   async function doSuggestTopics() {

@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,6 +22,15 @@ class FakeGenerator:
             )
             for idx in range(count)
         ]
+
+
+class SuggestingGenerator(FakeGenerator):
+    def __init__(self):
+        self.suggestion_calls = 0
+
+    def suggest_topics(self, topic, overview_json, history=None, count=4):
+        self.suggestion_calls += 1
+        return ["Suggested topic"]
 
 
 class CoreLoopTests(unittest.TestCase):
@@ -174,6 +184,94 @@ class CoreLoopTests(unittest.TestCase):
                 self.assertIsNotNone(review)
                 self.assertEqual(review.id, high_id)
                 self.assertNotEqual(review.id, low_id)
+            finally:
+                store.close()
+
+    def test_start_topic_counts_as_turn_without_auto_suggestions_or_answer_leak(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            generator = SuggestingGenerator()
+            try:
+                loop = CoreLoop(store, generator, review_every=3)
+                conv_id = store.create_conversation()
+
+                _, questions = loop.start_topic(conv_id, "cells", quiz_count=1)
+
+                conv = store.get_conversation(conv_id)
+                self.assertEqual(conv["turn_count"], 1)
+                self.assertEqual(questions[0].topic, "cells")
+                self.assertEqual(generator.suggestion_calls, 0)
+
+                messages = store.get_messages(conv_id)
+                kinds = [message["kind"] for message in messages]
+                self.assertNotIn("suggestions", kinds)
+                question_message = next(message for message in messages if message["kind"] == "question")
+                question_content = json.loads(question_message["content_json"])
+                self.assertEqual(question_content["topic"], "cells")
+                self.assertNotIn("answer_index", question_content)
+                self.assertNotIn("rationale", question_content)
+            finally:
+                store.close()
+
+    def test_answer_counts_as_turn_and_reveals_answer_in_answer_message_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                loop = CoreLoop(store, FakeGenerator(), review_every=99)
+                conv_id = store.create_conversation()
+                _, questions = loop.start_topic(conv_id, "cells", quiz_count=1)
+
+                result = loop.answer_item(conv_id, questions[0].item_id, 1)
+
+                self.assertIsNone(result.review)
+                conv = store.get_conversation(conv_id)
+                self.assertEqual(conv["turn_count"], 2)
+
+                answer_message = next(
+                    message for message in store.get_messages(conv_id)
+                    if message["kind"] == "answer"
+                )
+                answer_content = json.loads(answer_message["content_json"])
+                self.assertEqual(answer_content["correct_index"], 0)
+                self.assertEqual(answer_content["rationale"], "Rationale 0")
+            finally:
+                store.close()
+
+    def test_review_question_carries_source_topic_after_focus_switch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                loop = CoreLoop(store, FakeGenerator(), review_every=1)
+                conv_id = store.create_conversation()
+                _, cells_questions = loop.start_topic(conv_id, "cells", quiz_count=1)
+                loop.answer(conv_id, cells_questions[0], 1)
+                loop.start_topic(conv_id, "atoms", quiz_count=1)
+
+                review = loop.next_turn(conv_id)
+
+                self.assertIsNotNone(review)
+                self.assertTrue(review.is_review)
+                self.assertEqual(review.topic, "cells")
+            finally:
+                store.close()
+
+    def test_graph_events_are_persisted_to_logs_table(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                loop = CoreLoop(store, FakeGenerator(), review_every=2)
+                conv_id = store.create_conversation()
+
+                loop.start_topic(conv_id, "cells", quiz_count=1)
+
+                rows = store.conn.execute(
+                    "SELECT event FROM logs WHERE conversation_id = ? ORDER BY id",
+                    (conv_id,),
+                ).fetchall()
+                self.assertEqual(
+                    [row["event"] for row in rows],
+                    ["graph.overview", "graph.quiz_gen", "graph.verify", "graph.safety"],
+                )
             finally:
                 store.close()
 

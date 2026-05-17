@@ -2,7 +2,9 @@
 
 Offline, single-user learning agent built on Gemma 4. Explains topics, generates MCQ quizzes, and uses spaced repetition to reinforce retention.
 
-See [`docs/CONCEPT.md`](docs/CONCEPT.md) for the full concept and [`docs/ROADMAP.md`](docs/ROADMAP.md) for the milestone plan.
+See [`docs/CONCEPT.md`](docs/CONCEPT.md) for the full concept,
+[`docs/ROADMAP.md`](docs/ROADMAP.md) for the milestone plan, and
+[`docs/M3_API_CONTRACT.md`](docs/M3_API_CONTRACT.md) for the current API contract.
 
 ---
 

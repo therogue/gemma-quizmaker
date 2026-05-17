@@ -113,9 +113,9 @@ UI completion:
 - [x] 3-panel layout: sidebar (conversations), center (chat thread + dual topic/chat inputs), right (questions panel grouped by topic with collapsible sections).
 - [x] Questions panel: inline answer feedback (correct/wrong highlights + rationale), scrollable history, full state restored on reload.
 - [x] Review questions batch after all current cards answered (not mid-round).
+- [x] Cross-topic review labelling: review cards include a source-topic tag using the quiz item's originating topic.
 
 **Remaining before M3 is done:**
-- [ ] **Cross-topic review labelling** (open design decision): when a review question from a previous topic surfaces in the current topic's section, it should show which topic it came from. Two options: (A) add a small source-topic tag on the review card — requires passing topic through `QuestionOut`; (B) give reviews a dedicated fixed panel section separate from topic groups. Option A is lighter. Decision pending.
 - [ ] **Real model integration test**: run the full stack with `GemmaQuizGenerator` loaded (GPU required) to verify end-to-end latency, JSON parsing robustness, and review scheduling under real inference times.
 
 **Done when:** a non-developer can open the app, create multiple conversations, switch between them, drill from a topic into a sub-topic inside the same conversation, reload the page, and see the transcript plus per-conversation review questions preserved.

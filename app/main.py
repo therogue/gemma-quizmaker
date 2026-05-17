@@ -73,6 +73,7 @@ class OverviewOut(BaseModel):
 class QuestionOut(BaseModel):
     item_id: int
     is_review: bool
+    topic: str
     question: str
     choices: list[str]
 
@@ -97,6 +98,7 @@ class AnswerResponse(BaseModel):
     is_correct: bool
     correct_index: int
     rationale: str
+    review: QuestionOut | None = None
 
 
 class TurnResponse(BaseModel):
@@ -142,6 +144,7 @@ def _question_out(asked: AskedQuestion) -> QuestionOut:
     return QuestionOut(
         item_id=asked.item_id,
         is_review=asked.is_review,
+        topic=asked.topic,
         question=asked.mcq.question,
         choices=asked.mcq.choices,
     )
@@ -188,7 +191,8 @@ async def get_conversation(conversation_id: int) -> ConversationDetailOut:
         active_questions=[
             QuestionOut(
                 item_id=item.id,
-                is_review=False,
+                is_review=item.priority > 0,
+                topic=item.topic,
                 question=item.mcq.question,
                 choices=item.mcq.choices,
             )
@@ -224,6 +228,7 @@ async def answer(conversation_id: int, body: AnswerRequest) -> AnswerResponse:
         is_correct=result.is_correct,
         correct_index=result.correct_index,
         rationale=result.rationale,
+        review=_question_out(result.review) if result.review else None,
     )
 
 

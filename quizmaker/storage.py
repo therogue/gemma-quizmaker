@@ -212,27 +212,36 @@ class QuizStore:
         )
         self.conn.commit()
 
-    def due_review_item(self, conversation_id: int) -> ReviewItem | None:
+    def due_review_item(
+        self, conversation_id: int, exclude_item_id: int | None = None
+    ) -> ReviewItem | None:
         row = self.conn.execute(
             """
             SELECT * FROM quiz_items
-            WHERE conversation_id = ? AND priority > 0 AND cooldown <= 0
+            WHERE conversation_id = ?
+              AND priority > 0
+              AND cooldown <= 0
+              AND (? IS NULL OR id != ?)
             ORDER BY priority DESC, wrong_count DESC, updated_at ASC, id ASC
             LIMIT 1
             """,
-            (conversation_id,),
+            (conversation_id, exclude_item_id, exclude_item_id),
         ).fetchone()
         return self._row_to_review_item(row) if row else None
 
-    def decrement_cooldowns(self, conversation_id: int) -> None:
+    def decrement_cooldowns(
+        self, conversation_id: int, exclude_item_id: int | None = None
+    ) -> None:
         self.conn.execute(
             """
             UPDATE quiz_items
             SET cooldown = CASE WHEN cooldown > 0 THEN cooldown - 1 ELSE 0 END,
                 updated_at = CURRENT_TIMESTAMP
-            WHERE conversation_id = ? AND priority > 0
+            WHERE conversation_id = ?
+              AND priority > 0
+              AND (? IS NULL OR id != ?)
             """,
-            (conversation_id,),
+            (conversation_id, exclude_item_id, exclude_item_id),
         )
         self.conn.commit()
 

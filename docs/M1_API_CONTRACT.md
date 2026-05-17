@@ -1,5 +1,9 @@
 # M1 Backend Contract
 
+Legacy note: this file documents the original M1 singleton-session contract. The
+current multi-conversation MVP contract is documented in
+[`M3_API_CONTRACT.md`](M3_API_CONTRACT.md).
+
 This is the intended boundary between the future FastAPI/UI layer and the M1 backend loop.
 
 The UI should call backend functions or HTTP endpoints that map to these events. It should not duplicate quiz generation, grading, review scheduling, or SQLite persistence.
