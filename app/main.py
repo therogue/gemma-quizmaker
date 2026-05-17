@@ -76,6 +76,7 @@ class QuestionOut(BaseModel):
     topic: str
     question: str
     choices: list[str]
+    multi_correct: bool
 
 
 class StartTopicRequest(BaseModel):
@@ -149,6 +150,7 @@ def _question_out(asked: AskedQuestion) -> QuestionOut:
         topic=asked.topic,
         question=asked.mcq.question,
         choices=asked.mcq.choices,
+        multi_correct=len(asked.mcq.answer_indices) > 1,
     )
 
 
@@ -197,6 +199,7 @@ async def get_conversation(conversation_id: int) -> ConversationDetailOut:
                 topic=item.topic,
                 question=item.mcq.question,
                 choices=item.mcq.choices,
+                multi_correct=len(item.mcq.answer_indices) > 1,
             )
             for item in active_items
         ],

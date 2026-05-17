@@ -306,8 +306,40 @@ class CoreLoopTests(unittest.TestCase):
                 ).fetchall()
                 self.assertEqual(
                     [row["event"] for row in rows],
-                    ["graph.overview", "graph.quiz_gen", "graph.verify", "graph.safety"],
+                    [
+                        "graph.overview",
+                        "graph.quiz_gen",
+                        "graph.verify_dedup",
+                        "graph.verify",
+                        "graph.safety",
+                    ],
                 )
+            finally:
+                store.close()
+
+    def test_get_question_texts_returns_questions_for_one_conversation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                conv_a = store.create_conversation()
+                conv_b = store.create_conversation()
+                store.add_quiz_item(
+                    conv_a, "biology",
+                    MCQ("Question A1?", ["a", "b", "c", "d"], 0, "R"),
+                )
+                store.add_quiz_item(
+                    conv_a, "biology",
+                    MCQ("Question A2?", ["a", "b", "c", "d"], 0, "R"),
+                )
+                store.add_quiz_item(
+                    conv_b, "biology",
+                    MCQ("Question B1?", ["a", "b", "c", "d"], 0, "R"),
+                )
+
+                texts_a = store.get_question_texts(conv_a)
+
+                self.assertEqual(sorted(texts_a), ["Question A1?", "Question A2?"])
+                self.assertNotIn("Question B1?", texts_a)
             finally:
                 store.close()
 

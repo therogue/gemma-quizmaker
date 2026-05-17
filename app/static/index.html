@@ -769,10 +769,12 @@
     qEl.textContent = q.question;
     card.appendChild(qEl);
 
-    const hint = document.createElement('div');
-    hint.className = 'q-hint';
-    hint.textContent = 'Select one or more.';
-    card.appendChild(hint);
+    if (q.multi_correct) {
+      const hint = document.createElement('div');
+      hint.className = 'q-hint';
+      hint.textContent = 'Select one or more.';
+      card.appendChild(hint);
+    }
 
     const choicesEl = document.createElement('div');
     choicesEl.className = 'q-choices';
@@ -783,25 +785,35 @@
       btn.textContent = `${letter}. ${q.choices[i]}`;
       btn.onclick = () => {
         if (card.classList.contains('answered')) return;
-        if (selected.has(i)) {
-          selected.delete(i);
-          btn.classList.remove('selected');
+        if (q.multi_correct) {
+          if (selected.has(i)) {
+            selected.delete(i);
+            btn.classList.remove('selected');
+          } else {
+            selected.add(i);
+            btn.classList.add('selected');
+          }
+          submit.disabled = selected.size === 0;
         } else {
+          selected.clear();
           selected.add(i);
           btn.classList.add('selected');
+          submitAnswer(q.item_id, [i], card);
         }
-        submit.disabled = selected.size === 0;
       };
       choicesEl.appendChild(btn);
     });
     card.appendChild(choicesEl);
 
-    const submit = document.createElement('button');
-    submit.className = 'answer-submit';
-    submit.textContent = 'Submit';
-    submit.disabled = true;
-    submit.onclick = () => submitAnswer(q.item_id, Array.from(selected), card);
-    card.appendChild(submit);
+    let submit = null;
+    if (q.multi_correct) {
+      submit = document.createElement('button');
+      submit.className = 'answer-submit';
+      submit.textContent = 'Submit';
+      submit.disabled = true;
+      submit.onclick = () => submitAnswer(q.item_id, Array.from(selected), card);
+      card.appendChild(submit);
+    }
 
     const target = section ? section.querySelector('.topic-questions') : activeQs;
     target.appendChild(card);

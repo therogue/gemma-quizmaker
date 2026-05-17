@@ -12,6 +12,7 @@ from quizmaker.storage import QuizStore
 EXPECTED_M2_NODES = {
     "overview",
     "quiz_gen",
+    "verify_dedup",
     "verify",
     "safety",
     "grade",
@@ -56,7 +57,9 @@ class DuplicateThenReplacementGenerator:
     def generate_overview(self, topic):
         return Overview(points=[f"Overview for {topic}"])
 
-    def generate_quiz(self, topic, overview, count=3):
+    def generate_quiz(
+        self, topic, overview, count=3, avoid_questions=None
+    ):
         self.quiz_calls += 1
         if self.quiz_calls == 1:
             return [
@@ -155,7 +158,7 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
                 self.assertEqual(len(questions), 1)
                 self.assertEqual(
                     read_log_nodes(log_path),
-                    ["overview", "quiz_gen", "verify", "safety"],
+                    ["overview", "quiz_gen", "verify_dedup", "verify", "safety"],
                 )
                 for entry in read_log_entries(log_path):
                     with self.subTest(node=entry["node"]):
@@ -283,6 +286,41 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
                 self.assertTrue(review_entries[0]["input"])
                 self.assertTrue(review_entries[0]["output"])
                 self.assertIsNotNone(review_entries[0]["output"]["review"])
+            finally:
+                store.close()
+
+    def test_verify_dedup_stops_topping_up_when_no_distinct_items_can_be_produced(self):
+        existing_q = "What is the function of mitochondria?"
+        dup_mcq = MCQ(existing_q, ["A", "B", "C", "D"], 0, "Dup rationale")
+
+        class AllDupsGenerator:
+            def __init__(self):
+                self.quiz_calls = 0
+
+            def generate_overview(self, topic):
+                return Overview(points=[f"Overview for {topic}"])
+
+            def generate_quiz(self, topic, overview, count=3, avoid_questions=None):
+                self.quiz_calls += 1
+                return [dup_mcq for _ in range(count)]
+
+        generator = AllDupsGenerator()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QuizStore(Path(tmp) / "quiz.sqlite3")
+            try:
+                conv_id = store.create_conversation()
+                store.add_quiz_item(
+                    conv_id,
+                    "biology",
+                    MCQ(existing_q, ["A", "B", "C", "D"], 0, "Original rationale"),
+                )
+
+                loop = CoreLoop(store, generator)
+                _, questions = loop.start_topic(conv_id, "biology", quiz_count=2)
+
+                self.assertEqual(questions, [])
+                self.assertEqual(generator.quiz_calls, 2)
             finally:
                 store.close()
 

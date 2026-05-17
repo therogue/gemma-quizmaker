@@ -19,12 +19,14 @@ from quizmaker.storage import QuizStore
 GRAPH_NODE_NAMES = (
     "overview",
     "quiz_gen",
+    "verify_dedup",
     "verify",
     "safety",
     "grade",
     "review_inject",
 )
 
+_DEDUP_TOPUP_RETRIES = 2
 _WORD_RE = re.compile(r"[a-z0-9]+")
 _STOP_WORDS = {
     "about",
@@ -101,6 +103,7 @@ class CoreLoopState(TypedDict, total=False):
     overview: str
     quiz_count: int
     mcqs: list[MCQ]
+    existing_questions: list[str]
     item_id: int
     choice_index: int
     choice_indices: list[int]
@@ -143,6 +146,7 @@ class CoreLoop:
         graph = StateGraph(CoreLoopState)
         graph.add_node("overview", self._overview_node)
         graph.add_node("quiz_gen", self._quiz_gen_node)
+        graph.add_node("verify_dedup", self._verify_dedup_node)
         graph.add_node("verify", self._verify_node)
         graph.add_node("safety", self._safety_node)
         graph.add_node("grade", self._grade_node)
@@ -159,7 +163,8 @@ class CoreLoop:
             },
         )
         graph.add_edge("overview", "quiz_gen")
-        graph.add_edge("quiz_gen", "verify")
+        graph.add_edge("quiz_gen", "verify_dedup")
+        graph.add_edge("verify_dedup", "verify")
         graph.add_edge("verify", "safety")
         graph.add_edge("safety", END)
         graph.add_edge("grade", END)
@@ -191,13 +196,54 @@ class CoreLoop:
         self._log_node("quiz_gen", state, output)
         return output
 
+    def _verify_dedup_node(self, state: CoreLoopState) -> CoreLoopState:
+        existing_questions = self.store.get_question_texts(state["conversation_id"])
+        target = state.get("quiz_count", len(state["mcqs"]))
+        kept: list[MCQ] = []
+        dropped: list[str] = []
+
+        def absorb(batch: list[MCQ]) -> int:
+            added = 0
+            for mcq in batch:
+                candidates = [item.question for item in kept] + existing_questions + dropped
+                if self._is_too_similar_to_any(mcq.question, candidates):
+                    dropped.append(mcq.question)
+                    continue
+                kept.append(mcq)
+                added += 1
+            return added
+
+        absorb(state["mcqs"])
+
+        for _ in range(_DEDUP_TOPUP_RETRIES):
+            if len(kept) >= target:
+                break
+            avoid = existing_questions + [item.question for item in kept] + dropped
+            more = self._generate_quiz(
+                state["topic"],
+                state["overview"],
+                target - len(kept),
+                avoid_questions=avoid,
+            )
+            if not more:
+                break
+            if absorb(more) == 0:
+                break
+
+        output: CoreLoopState = {
+            "mcqs": kept,
+            "existing_questions": existing_questions + dropped,
+        }
+        self._log_node("verify_dedup", state, output)
+        return output
+
     def _verify_node(self, state: CoreLoopState) -> CoreLoopState:
         verified: list[MCQ] = []
-        existing_questions = self.store.list_quiz_questions(
-            state["conversation_id"], state.get("topic")
+        existing_questions = state.get("existing_questions") or self.store.get_question_texts(
+            state["conversation_id"]
         )
         for mcq in state["mcqs"]:
-            if self._verify_mcq_quality(state, mcq, verified, existing_questions):
+            if self.verifier.verify_mcq(state["topic"], state["overview"], mcq):
                 verified.append(mcq)
                 continue
 
@@ -207,8 +253,8 @@ class CoreLoop:
                 1,
                 avoid_questions=existing_questions + [item.question for item in verified],
             )
-            if retry and self._verify_mcq_quality(
-                state, retry[0], verified, existing_questions
+            if retry and self.verifier.verify_mcq(
+                state["topic"], state["overview"], retry[0]
             ):
                 verified.append(retry[0])
 
@@ -331,20 +377,6 @@ class CoreLoop:
         if isinstance(value, list):
             return [self._jsonable(item) for item in value]
         return value
-
-    def _verify_mcq_quality(
-        self,
-        state: CoreLoopState,
-        mcq: MCQ,
-        accepted: list[MCQ],
-        existing_questions: list[str],
-    ) -> bool:
-        if self._is_too_similar_to_any(
-            mcq.question,
-            [item.question for item in accepted] + existing_questions,
-        ):
-            return False
-        return self.verifier.verify_mcq(state["topic"], state["overview"], mcq)
 
     def _generate_quiz(
         self,
