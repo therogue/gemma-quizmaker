@@ -137,10 +137,11 @@ class CoreLoop:
         self,
         store: QuizStore,
         generator: QuizGenerator,
+        *,
+        verifier: QuizVerifier,
+        safety_checker: SafetyChecker,
         review_every: int = 3,
         log_path: Path | None = None,
-        verifier: QuizVerifier | None = None,
-        safety_checker: SafetyChecker | None = None,
     ) -> None:
         if review_every < 1:
             raise ValueError("review_every must be at least 1")
@@ -148,8 +149,8 @@ class CoreLoop:
         self.generator = generator
         self.review_every = review_every
         self.log_path = log_path
-        self.verifier = verifier or AcceptAllVerifier()
-        self.safety_checker = safety_checker or AllowAllSafetyChecker()
+        self.verifier = verifier
+        self.safety_checker = safety_checker
         self.graph_node_names = GRAPH_NODE_NAMES
         self.graph = self._build_graph()
 

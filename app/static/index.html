@@ -782,7 +782,7 @@
     let i = 0;
     const tick = setInterval(() => {
       if (i < phases.length) { label.textContent = phases[i++]; }
-    }, 2000);
+    }, 3000);
     const origRemove = el.remove.bind(el);
     el.remove = () => { clearInterval(tick); origRemove(); };
     return el;
