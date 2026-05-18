@@ -10,8 +10,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from quizmaker.core_loop import AskedQuestion, CoreLoop
-from quizmaker.gemma import GemmaQuizGenerator, load_model
+from quizmaker.core_loop import AllowAllSafetyChecker, AskedQuestion, CoreLoop
+from quizmaker.gemma import GemmaQuizGenerator, GemmaQuizVerifier, load_model
 from quizmaker.schemas import Overview
 from quizmaker.storage import QuizStore
 
@@ -27,7 +27,13 @@ async def lifespan(app: FastAPI):
     global _store, _loop
     model, processor = load_model()
     _store = QuizStore(_DB_PATH)
-    _loop = CoreLoop(_store, GemmaQuizGenerator(model, processor), review_every=_REVIEW_EVERY)
+    _loop = CoreLoop(
+        _store,
+        GemmaQuizGenerator(model, processor),
+        verifier=GemmaQuizVerifier(model, processor),
+        safety_checker=AllowAllSafetyChecker(),
+        review_every=_REVIEW_EVERY,
+    )
     yield
     _store.close()
 

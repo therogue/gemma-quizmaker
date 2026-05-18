@@ -3,9 +3,21 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from quizmaker.core_loop import CoreLoop
+from quizmaker.core_loop import (
+    AcceptAllVerifier,
+    AllowAllSafetyChecker,
+    CoreLoop,
+)
 from quizmaker.schemas import MCQ, Overview
 from quizmaker.storage import QuizStore
+
+
+def _loop(store, generator, **kwargs):
+    """CoreLoop with no-op verifier/safety_checker; tests that exercise those
+    pass their own explicitly to the real CoreLoop constructor."""
+    kwargs.setdefault("verifier", AcceptAllVerifier())
+    kwargs.setdefault("safety_checker", AllowAllSafetyChecker())
+    return CoreLoop(store, generator, **kwargs)
 
 
 class FakeGenerator:
@@ -51,9 +63,9 @@ class CoreLoopTests(unittest.TestCase):
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
                 with self.assertRaises(ValueError):
-                    CoreLoop(store, FakeGenerator(), review_every=0)
+                    _loop(store, FakeGenerator(), review_every=0)
 
-                loop = CoreLoop(store, FakeGenerator(), review_every=2)
+                loop = _loop(store, FakeGenerator(), review_every=2)
                 conv_id = store.create_conversation()
 
                 with self.assertRaises(ValueError):
@@ -69,7 +81,7 @@ class CoreLoopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
-                loop = CoreLoop(store, FakeGenerator(), review_every=2)
+                loop = _loop(store, FakeGenerator(), review_every=2)
                 conv_id = store.create_conversation()
                 _, questions = loop.start_topic(conv_id, "cells", quiz_count=1)
 
@@ -88,7 +100,7 @@ class CoreLoopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
-                loop = CoreLoop(store, FakeGenerator(), review_every=1)
+                loop = _loop(store, FakeGenerator(), review_every=1)
                 conv_id = store.create_conversation()
                 _, questions = loop.start_topic(conv_id, "cells", quiz_count=1)
 
@@ -105,7 +117,7 @@ class CoreLoopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
-                loop = CoreLoop(store, FakeGenerator(), review_every=1)
+                loop = _loop(store, FakeGenerator(), review_every=1)
                 conv_id = store.create_conversation()
                 _, questions = loop.start_topic(conv_id, "atoms", quiz_count=1)
                 loop.answer(conv_id, questions[0], 1)
@@ -122,7 +134,7 @@ class CoreLoopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
-                loop = CoreLoop(store, FakeGenerator(), review_every=1)
+                loop = _loop(store, FakeGenerator(), review_every=1)
                 conv_id = store.create_conversation()
                 _, questions = loop.start_topic(conv_id, "atoms", quiz_count=1)
 
@@ -140,7 +152,7 @@ class CoreLoopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
-                loop = CoreLoop(store, MultiAnswerGenerator(), review_every=99)
+                loop = _loop(store, MultiAnswerGenerator(), review_every=99)
                 conv_id = store.create_conversation()
                 _, questions = loop.start_topic(conv_id, "cells", quiz_count=1)
 
@@ -162,7 +174,7 @@ class CoreLoopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
-                loop = CoreLoop(store, FakeGenerator(), review_every=1)
+                loop = _loop(store, FakeGenerator(), review_every=1)
                 conv_id = store.create_conversation()
                 with self.assertRaises(ValueError):
                     loop.answer_item(conv_id, 999, 0)
@@ -175,7 +187,7 @@ class CoreLoopTests(unittest.TestCase):
             store = QuizStore(db_path)
             conv_id = None
             try:
-                loop = CoreLoop(store, FakeGenerator(), review_every=1)
+                loop = _loop(store, FakeGenerator(), review_every=1)
                 conv_id = store.create_conversation()
                 _, questions = loop.start_topic(conv_id, "atoms", quiz_count=1)
                 loop.answer(conv_id, questions[0], 1)
@@ -184,7 +196,7 @@ class CoreLoopTests(unittest.TestCase):
 
             reopened_store = QuizStore(db_path)
             try:
-                resumed_loop = CoreLoop(reopened_store, FakeGenerator(), review_every=1)
+                resumed_loop = _loop(reopened_store, FakeGenerator(), review_every=1)
                 conv = reopened_store.get_conversation(conv_id)
                 self.assertEqual(conv["topic"], "atoms")
                 self.assertIn("Overview for atoms", conv["overview_json"])
@@ -226,7 +238,7 @@ class CoreLoopTests(unittest.TestCase):
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             generator = SuggestingGenerator()
             try:
-                loop = CoreLoop(store, generator, review_every=3)
+                loop = _loop(store, generator, review_every=3)
                 conv_id = store.create_conversation()
 
                 _, questions = loop.start_topic(conv_id, "cells", quiz_count=1)
@@ -252,7 +264,7 @@ class CoreLoopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
-                loop = CoreLoop(store, FakeGenerator(), review_every=99)
+                loop = _loop(store, FakeGenerator(), review_every=99)
                 conv_id = store.create_conversation()
                 _, questions = loop.start_topic(conv_id, "cells", quiz_count=1)
 
@@ -277,7 +289,7 @@ class CoreLoopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
-                loop = CoreLoop(store, FakeGenerator(), review_every=1)
+                loop = _loop(store, FakeGenerator(), review_every=1)
                 conv_id = store.create_conversation()
                 _, cells_questions = loop.start_topic(conv_id, "cells", quiz_count=1)
                 loop.answer(conv_id, cells_questions[0], 1)
@@ -295,7 +307,7 @@ class CoreLoopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
-                loop = CoreLoop(store, FakeGenerator(), review_every=2)
+                loop = _loop(store, FakeGenerator(), review_every=2)
                 conv_id = store.create_conversation()
 
                 loop.start_topic(conv_id, "cells", quiz_count=1)
@@ -347,7 +359,7 @@ class CoreLoopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
-                loop = CoreLoop(store, FakeGenerator(), review_every=1)
+                loop = _loop(store, FakeGenerator(), review_every=1)
                 conv_a = store.create_conversation()
                 conv_b = store.create_conversation()
 
@@ -395,7 +407,7 @@ class MessagePipelineIntegrationTests(unittest.TestCase):
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
                 gen = MessagePipelineFakeGenerator(safety_result=True, intent="chat", chat_reply="Great question!")
-                loop = CoreLoop(store, gen, review_every=99)
+                loop = _loop(store, gen, review_every=99)
                 conv_id = store.create_conversation()
                 store.save_conversation(conv_id, "cells", '{"points": ["Overview"]}', turn_count=0)
 
@@ -416,7 +428,7 @@ class MessagePipelineIntegrationTests(unittest.TestCase):
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
                 gen = MessagePipelineFakeGenerator(safety_result=True, intent="start_topic")
-                loop = CoreLoop(store, gen, review_every=99)
+                loop = _loop(store, gen, review_every=99)
                 conv_id = store.create_conversation()
 
                 overview, questions = loop.process_message(conv_id, "photosynthesis", quiz_count=1)
@@ -435,7 +447,7 @@ class MessagePipelineIntegrationTests(unittest.TestCase):
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
                 gen = MessagePipelineFakeGenerator(safety_result=False)
-                loop = CoreLoop(store, gen, review_every=99)
+                loop = _loop(store, gen, review_every=99)
                 conv_id = store.create_conversation()
 
                 result = loop.process_message(conv_id, "unsafe query")
@@ -450,7 +462,7 @@ class MessagePipelineIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
-                loop = CoreLoop(store, MessagePipelineFakeGenerator(), review_every=99)
+                loop = _loop(store, MessagePipelineFakeGenerator(), review_every=99)
                 conv_id = store.create_conversation()
 
                 with self.assertRaises(ValueError):
@@ -465,7 +477,7 @@ class MessagePipelineIntegrationTests(unittest.TestCase):
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
                 gen = MessagePipelineFakeGenerator(safety_result=True, intent="more_questions")
-                loop = CoreLoop(store, gen, review_every=99)
+                loop = _loop(store, gen, review_every=99)
                 conv_id = store.create_conversation()
 
                 result = loop.process_message(conv_id, "photosynthesis")
@@ -483,7 +495,7 @@ class MessagePipelineIntegrationTests(unittest.TestCase):
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
                 gen = MessagePipelineFakeGenerator(safety_result=True, intent="suggest_topics")
-                loop = CoreLoop(store, gen, review_every=99)
+                loop = _loop(store, gen, review_every=99)
                 conv_id = store.create_conversation()
 
                 result = loop.process_message(conv_id, "neural networks")

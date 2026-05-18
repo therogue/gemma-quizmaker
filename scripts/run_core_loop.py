@@ -25,8 +25,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from quizmaker.core_loop import AskedQuestion, CoreLoop
-from quizmaker.gemma import GemmaQuizGenerator, load_model
+from quizmaker.core_loop import AllowAllSafetyChecker, AskedQuestion, CoreLoop
+from quizmaker.gemma import GemmaQuizGenerator, GemmaQuizVerifier, load_model
 from quizmaker.storage import QuizStore
 
 
@@ -72,7 +72,13 @@ def main() -> None:
     model, processor = load_model()
     store = QuizStore(Path(args.db))
     try:
-        loop = CoreLoop(store, GemmaQuizGenerator(model, processor), review_every=args.review_every)
+        loop = CoreLoop(
+            store,
+            GemmaQuizGenerator(model, processor),
+            verifier=GemmaQuizVerifier(model, processor),
+            safety_checker=AllowAllSafetyChecker(),
+            review_every=args.review_every,
+        )
         conversation_id = store.create_conversation()
         overview, questions = loop.start_topic(conversation_id, args.topic, quiz_count=args.count)
 

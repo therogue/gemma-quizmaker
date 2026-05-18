@@ -56,13 +56,27 @@ def load_model() -> tuple[Any, Any]:
     return model, processor
 
 
-def run_inference(model: Any, processor: Any, messages: list[dict], max_new_tokens: int) -> str:
+DEFAULT_TEMPERATURE = 0.4
+
+
+def run_inference(
+    model: Any,
+    processor: Any,
+    messages: list[dict],
+    max_new_tokens: int,
+    temperature: float = DEFAULT_TEMPERATURE,
+) -> str:
     text = processor.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True
     )
     inputs = processor(text=text, return_tensors="pt").to(model.device)
     input_len = inputs["input_ids"].shape[-1]
-    outputs = model.generate(**inputs, max_new_tokens=max_new_tokens)
+    outputs = model.generate(
+        **inputs,
+        max_new_tokens=max_new_tokens,
+        do_sample=True,
+        temperature=temperature,
+    )
     return processor.decode(outputs[0][input_len:], skip_special_tokens=True)
 
 
@@ -109,7 +123,13 @@ class GemmaQuizGenerator:
                     ),
                 },
             ]
-            raw2 = run_inference(self.model, self.processor, retry_messages, MAX_NEW_TOKENS)
+            raw2 = run_inference(
+                self.model,
+                self.processor,
+                retry_messages,
+                MAX_NEW_TOKENS,
+                temperature=DEFAULT_TEMPERATURE + 0.1,
+            )
             print(f"[overview retry] raw output: {raw2!r}", file=sys.stderr)
             return Overview.from_mapping(json.loads(extract_json_object(raw2)))
 
@@ -136,9 +156,9 @@ class GemmaQuizGenerator:
             {
                 "role": "system",
                 "content": (
-                    "You are a quiz generator. Output ONLY a valid JSON object with no markdown, "
-                    "no comments, and no surrounding text. Questions may have one or more "
-                    "correct choices."
+                    "You are a quiz generator. Output ONLY a single-line compact JSON object — "
+                    "no line breaks, no indentation, no markdown, no comments, no surrounding text. "
+                    "Questions may have one or more correct choices."
                 ),
             },
             {
@@ -156,7 +176,7 @@ class GemmaQuizGenerator:
                     "choice incorrect. Keep every incorrect choice clearly false.\n\n"
                     "Return a JSON object with exactly these fields:\n"
                     '  "question": string\n'
-                    '  "choices": array of exactly 4 strings — do NOT include A/B/C/D labels, the UI adds those\n'
+                    '  "choices": array of exactly 4 strings (each ≤ 12 words) — do NOT include A/B/C/D labels, the UI adds those\n'
                     '  "answer_indices": non-empty array of integers 0-3 (indices of all correct choices)\n'
                     '  "rationale": string explaining why the answer is correct'
                 ),
@@ -187,7 +207,11 @@ class GemmaQuizGenerator:
                     },
                 ]
                 current_raw = run_inference(
-                    self.model, self.processor, current_messages, MAX_NEW_TOKENS
+                    self.model,
+                    self.processor,
+                    current_messages,
+                    MAX_NEW_TOKENS,
+                    temperature=DEFAULT_TEMPERATURE + 0.1 * (attempt + 1),
                 )
                 print(f"[retry {attempt + 1}/3] raw output: {current_raw!r}", file=sys.stderr)
         raise ValueError(f"MCQ {question_number} failed after 3 attempts: {last_error}")
@@ -344,7 +368,13 @@ class GemmaQuizGenerator:
                     ),
                 },
             ]
-            raw2 = run_inference(self.model, self.processor, retry_messages, 64)
+            raw2 = run_inference(
+                self.model,
+                self.processor,
+                retry_messages,
+                64,
+                temperature=DEFAULT_TEMPERATURE + 0.1,
+            )
             print(f"[input_safety retry] raw output: {raw2!r}", file=sys.stderr)
             try:
                 return bool(json.loads(extract_json_object(raw2))["safe"])
@@ -374,9 +404,13 @@ class GemmaQuizGenerator:
                     f'Student message: "{user_text}"\n\n'
                     "Classify the student's intent:\n"
                     "- 'start_topic': wants to learn about a NEW topic.\n"
-                    "- 'more_questions': wants additional quiz questions on the current topic.\n"
-                    "- 'suggest_topics': wants suggestions for related topics.\n"
-                    "- 'chat': asking a question or having a conversation about the current topic.\n\n"
+                    "  Examples: 'photosynthesis', 'tell me about WW2', 'Kepler's laws'.\n"
+                    "- 'more_questions': wants more quiz QUESTIONS on the CURRENT topic.\n"
+                    "  Examples: 'more questions', 'another quiz', 'give me more questions', 'quiz me more'.\n"
+                    "- 'suggest_topics': wants suggestions of OTHER TOPICS to explore next.\n"
+                    "  Examples: 'more topics', 'what else can I learn?', 'suggest topics', 'related topics', 'give me more topics'.\n"
+                    "- 'chat': asking a question or having a conversation about the current topic.\n"
+                    "  Examples: 'why is the sky blue?', 'I don't understand', 'explain that again'.\n\n"
                     "If the message is just a description or name of a topic (a noun phrase, "
                     "not a question), assume the student wants to learn about that topic and "
                     "choose 'start_topic'. Examples: 'photosynthesis', 'effects of orbital "
@@ -407,7 +441,13 @@ class GemmaQuizGenerator:
                     ),
                 },
             ]
-            raw2 = run_inference(self.model, self.processor, retry_messages, 64)
+            raw2 = run_inference(
+                self.model,
+                self.processor,
+                retry_messages,
+                64,
+                temperature=DEFAULT_TEMPERATURE + 0.1,
+            )
             print(f"[classify retry] raw output: {raw2!r}", file=sys.stderr)
             try:
                 intent2 = json.loads(extract_json_object(raw2))["intent"]
