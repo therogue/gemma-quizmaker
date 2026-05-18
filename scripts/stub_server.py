@@ -17,7 +17,12 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from quizmaker.core_loop import AskedQuestion, CoreLoop
+from quizmaker.core_loop import (
+    AcceptAllVerifier,
+    AllowAllSafetyChecker,
+    AskedQuestion,
+    CoreLoop,
+)
 from quizmaker.schemas import MCQ, Overview
 from quizmaker.storage import QuizStore
 
@@ -149,7 +154,13 @@ class FakeGenerator:
 
 _DB_PATH = Path("data/stub_quizmaker.sqlite3")
 _store = QuizStore(_DB_PATH)
-_loop = CoreLoop(_store, FakeGenerator(), review_every=3)
+_loop = CoreLoop(
+    _store,
+    FakeGenerator(),
+    verifier=AcceptAllVerifier(),
+    safety_checker=AllowAllSafetyChecker(),
+    review_every=3,
+)
 
 app = FastAPI(title="gemma-quizmaker (stub)", version="0.1.0")
 

@@ -8,7 +8,7 @@ with mock.patch("quizmaker.gemma.load_model", return_value=(None, None)):
 
     from app import main as app_module
 
-from quizmaker.core_loop import CoreLoop
+from quizmaker.core_loop import AcceptAllVerifier, AllowAllSafetyChecker, CoreLoop
 from quizmaker.schemas import MCQ, Overview
 from quizmaker.storage import QuizStore
 
@@ -54,7 +54,13 @@ class MessageEndpointTests(unittest.TestCase):
         store = QuizStore(Path(tmp.name) / "test.sqlite3")
         self.addCleanup(store.close)
         gen = _FakeGen(**gen_kwargs)
-        loop = CoreLoop(store, gen, review_every=99)
+        loop = CoreLoop(
+            store,
+            gen,
+            verifier=AcceptAllVerifier(),
+            safety_checker=AllowAllSafetyChecker(),
+            review_every=99,
+        )
         app_module._store = store
         app_module._loop = loop
         client = TestClient(app_module.app)

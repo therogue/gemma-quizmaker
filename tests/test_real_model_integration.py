@@ -5,8 +5,8 @@ import time
 import unittest
 from pathlib import Path
 
-from quizmaker.core_loop import CoreLoop
-from quizmaker.gemma import GemmaQuizGenerator, load_model
+from quizmaker.core_loop import AllowAllSafetyChecker, CoreLoop
+from quizmaker.gemma import GemmaQuizGenerator, GemmaQuizVerifier, load_model
 from quizmaker.storage import QuizStore
 
 
@@ -27,6 +27,8 @@ class RealModelIntegrationTests(unittest.TestCase):
                 loop = CoreLoop(
                     store,
                     GemmaQuizGenerator(self.model, self.processor),
+                    verifier=GemmaQuizVerifier(self.model, self.processor),
+                    safety_checker=AllowAllSafetyChecker(),
                     review_every=3,
                 )
                 conversation_id = store.create_conversation()

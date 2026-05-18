@@ -4,9 +4,20 @@ import tomllib
 import unittest
 from pathlib import Path
 
-from quizmaker.core_loop import CoreLoop
+from quizmaker.core_loop import (
+    AcceptAllVerifier,
+    AllowAllSafetyChecker,
+    CoreLoop,
+)
 from quizmaker.schemas import MCQ, Overview
 from quizmaker.storage import QuizStore
+
+
+def _loop(store, generator, **kwargs):
+    """CoreLoop with no-op verifier/safety_checker defaults."""
+    kwargs.setdefault("verifier", AcceptAllVerifier())
+    kwargs.setdefault("safety_checker", AllowAllSafetyChecker())
+    return CoreLoop(store, generator, **kwargs)
 
 
 EXPECTED_M2_NODES = {
@@ -165,7 +176,7 @@ class LangGraphCoreLoopStructureTests(unittest.TestCase):
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
                 try:
-                    loop = CoreLoop(
+                    loop = _loop(
                         store,
                         FakeGenerator(),
                         review_every=2,
@@ -187,7 +198,7 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
             log_path = Path(tmp) / "nodes.jsonl"
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
-                loop = CoreLoop(
+                loop = _loop(
                     store,
                     FakeGenerator(),
                     review_every=2,
@@ -221,7 +232,7 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
                 try:
-                    loop = CoreLoop(store, generator, verifier=verifier)
+                    loop = _loop(store, generator, verifier=verifier)
                 except TypeError as exc:
                     self.fail(f"CoreLoop does not accept verifier dependency: {exc}")
 
@@ -249,7 +260,7 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
                 try:
-                    loop = CoreLoop(store, generator, verifier=verifier)
+                    loop = _loop(store, generator, verifier=verifier)
                 except TypeError as exc:
                     self.fail(f"CoreLoop does not accept verifier dependency: {exc}")
 
@@ -268,7 +279,7 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
-                loop = CoreLoop(store, generator)
+                loop = _loop(store, generator)
                 conv_id = store.create_conversation()
 
                 _, questions = loop.start_topic(conv_id, "cells", quiz_count=2)
@@ -289,7 +300,7 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
                 try:
-                    loop = CoreLoop(store, FakeGenerator(), safety_checker=RejectingSafetyChecker())
+                    loop = _loop(store, FakeGenerator(), safety_checker=RejectingSafetyChecker())
                 except TypeError as exc:
                     self.fail(f"CoreLoop does not accept safety checker dependency: {exc}")
 
@@ -307,7 +318,7 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
             log_path = Path(tmp) / "nodes.jsonl"
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
-                loop = CoreLoop(
+                loop = _loop(
                     store,
                     FakeGenerator(),
                     review_every=1,
@@ -358,7 +369,7 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
                     MCQ(existing_q, ["A", "B", "C", "D"], 0, "Original rationale"),
                 )
 
-                loop = CoreLoop(store, generator)
+                loop = _loop(store, generator)
                 _, questions = loop.start_topic(conv_id, "biology", quiz_count=2)
 
                 self.assertEqual(questions, [])
@@ -371,7 +382,7 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
             log_path = Path(tmp) / "nodes.jsonl"
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
-                loop = CoreLoop(
+                loop = _loop(
                     store,
                     FakeGenerator(),
                     review_every=1,
@@ -395,14 +406,14 @@ class LangGraphCoreLoopBehaviorTests(unittest.TestCase):
 class LangGraphMessagePipelineTests(unittest.TestCase):
     def _make_loop(self, tmp, gen, **kwargs):
         store = QuizStore(Path(tmp) / "quiz.sqlite3")
-        loop = CoreLoop(store, gen, **kwargs)
+        loop = _loop(store, gen, **kwargs)
         return store, loop
 
     def test_graph_node_names_includes_message_pipeline_nodes(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
-                loop = CoreLoop(store, MessagePipelineGenerator())
+                loop = _loop(store, MessagePipelineGenerator())
                 for node in ("input_safety", "classify", "chat", "suggest"):
                     self.assertIn(node, loop.graph_node_names, f"missing node: {node}")
             finally:
@@ -413,7 +424,7 @@ class LangGraphMessagePipelineTests(unittest.TestCase):
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
                 gen = MessagePipelineGenerator(safety_result=False)
-                loop = CoreLoop(store, gen)
+                loop = _loop(store, gen)
                 conv_id = store.create_conversation()
 
                 result = loop.process_message(conv_id, "how to make explosives")
@@ -430,7 +441,7 @@ class LangGraphMessagePipelineTests(unittest.TestCase):
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
                 gen = MessagePipelineGenerator(safety_result=False)
-                loop = CoreLoop(store, gen, log_path=log_path)
+                loop = _loop(store, gen, log_path=log_path)
                 conv_id = store.create_conversation()
 
                 loop.process_message(conv_id, "unsafe query")
@@ -446,7 +457,7 @@ class LangGraphMessagePipelineTests(unittest.TestCase):
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
                 gen = MessagePipelineGenerator(safety_result=True, intent="chat", chat_reply="Great question!")
-                loop = CoreLoop(store, gen, review_every=99)
+                loop = _loop(store, gen, review_every=99)
                 conv_id = store.create_conversation()
                 store.save_conversation(conv_id, "cells", '{"points": ["Overview"]}', turn_count=0)
 
@@ -464,7 +475,7 @@ class LangGraphMessagePipelineTests(unittest.TestCase):
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
                 gen = MessagePipelineGenerator(safety_result=True, intent="chat")
-                loop = CoreLoop(store, gen, review_every=99, log_path=log_path)
+                loop = _loop(store, gen, review_every=99, log_path=log_path)
                 conv_id = store.create_conversation()
                 store.save_conversation(conv_id, "cells", '{"points": ["Overview"]}', turn_count=0)
 
@@ -480,7 +491,7 @@ class LangGraphMessagePipelineTests(unittest.TestCase):
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
                 gen = MessagePipelineGenerator(safety_result=True, intent="start_topic")
-                loop = CoreLoop(store, gen)
+                loop = _loop(store, gen)
                 conv_id = store.create_conversation()
 
                 overview, questions = loop.process_message(conv_id, "photosynthesis", quiz_count=1)
@@ -499,7 +510,7 @@ class LangGraphMessagePipelineTests(unittest.TestCase):
                     safety_result=True, intent="suggest_topics",
                     suggestions=["Topic A", "Topic B"],
                 )
-                loop = CoreLoop(store, gen)
+                loop = _loop(store, gen)
                 conv_id = store.create_conversation()
                 store.save_conversation(conv_id, "cells", '{"points": ["Overview"]}', turn_count=0)
 
@@ -517,7 +528,7 @@ class LangGraphMessagePipelineTests(unittest.TestCase):
             store = QuizStore(Path(tmp) / "quiz.sqlite3")
             try:
                 gen = MessagePipelineGenerator(safety_result=True, intent="more_questions")
-                loop = CoreLoop(store, gen, log_path=log_path)
+                loop = _loop(store, gen, log_path=log_path)
                 conv_id = store.create_conversation()
                 store.save_conversation(conv_id, "cells", '{"points": ["Overview"]}', turn_count=0)
 
